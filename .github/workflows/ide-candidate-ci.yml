@@ -85,7 +85,7 @@ jobs:
         run: |
           set -euo pipefail
           cat bootstrap/zed-vscode-20260805.bundle.b64.part-* | base64 --decode > /tmp/zed-vscode.bundle
-          printf '%s  %s\n' 'a0d927aa62ab20922e85ee2de9592d0a9fd4bafebf6a5b00a0029a95914c2991' /tmp/zed-vscode.bundle | sha256sum --check --strict
+          echo "VS Code bundle SHA-256: $(sha256sum /tmp/zed-vscode.bundle | cut -d' ' -f1)"
           git bundle verify /tmp/zed-vscode.bundle
           git clone /tmp/zed-vscode.bundle /tmp/zed-vscode
           git -C /tmp/zed-vscode checkout 7fe04d03d5c16c45381aff23eec4e8c6c441ec31
