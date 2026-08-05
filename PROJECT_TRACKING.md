@@ -80,15 +80,22 @@ Recommended Projects v2 fields when the board is created:
 
 The active dependency sequence is intentionally ordered:
 
-1. [`zed-pkg/zed-lock#2`](https://github.com/zed-pkg/zed-lock/pull/2)
-   hardens the standalone extracted locking package, verifies Linux/macOS/
-   Windows conformance, and emits a reviewable crate artifact.
-2. [`zed-pkg/zed-cli#195`](https://github.com/zed-pkg/zed-cli/pull/195)
-   imports the concrete `zed-pkg/zed-lock` Zed package into the CLI package graph
-   while retaining the byte-identical internal Cargo path during transition.
-3. A follow-up PR must pin Cargo to the exact merged `zed-lock` commit,
-   regenerate `Cargo.lock`, run all process-lock and platform suites, and only
-   then remove the internal `crates/zed-lock` copy.
+1. [`zed-pkg/zed-cli#198`](https://github.com/zed-pkg/zed-cli/pull/198)
+   is already merged. It pinned Cargo to the standalone `zed-pkg/zed-lock`
+   repository at an immutable commit, regenerated `Cargo.lock`, removed the
+   duplicate `crates/zed-lock` copy, and split crate-owned from CLI-owned CI.
+2. [`zed-pkg/zed-lock#2`](https://github.com/zed-pkg/zed-lock/pull/2)
+   hardens that standalone package, verifies Linux/macOS/Windows conformance,
+   and emits a reviewable `.crate` plus SHA-256 artifact. It changes package
+   review and release evidence; it does not restore an in-tree CLI copy.
+3. [`zed-pkg/zed-cli#195`](https://github.com/zed-pkg/zed-cli/pull/195)
+   must be rebuilt after `zed-lock#2` as a package-graph-only delta on the
+   current CLI mainline. The rebuilt PR may add the concrete `zed-pkg/zed-lock`
+   Zed dependency and external-package validation, but must preserve #198's
+   external Cargo source and deletion of `crates/zed-lock`.
+4. The `dev` branch is currently a direct ancestor of `main`; the rebuilt #195
+   merge should carry the three mainline migration commits into `dev` rather
+   than reintroducing stale internal-lock files.
 
 Independent feature work:
 
