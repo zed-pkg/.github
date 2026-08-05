@@ -41,16 +41,19 @@ jobs:
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.ZED_FLEET_GH_TOKEN || github.token }}
-          AUDIT_ORGS: ${{ github.event.inputs.orgs || 'zed-pkg' }}
+          AUDIT_ORGS: ${{ github.event.inputs.orgs || vars.ZED_FLEET_ORGS || 'zed-pkg' }}
         run: |
           set +e
           python3 tools/zed_fleet_audit.py \
             --orgs "$AUDIT_ORGS" \
             --json zed-fleet-report.json \
-            --markdown zed-fleet-report.md
+            --markdown zed-fleet-report.md \
+            --allow-errors
           status=$?
           set -e
-          cat zed-fleet-report.md >> "$GITHUB_STEP_SUMMARY"
+          if [[ -f zed-fleet-report.md ]]; then
+            cat zed-fleet-report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
           echo "status=$status" >> "$GITHUB_OUTPUT"
       - name: Upload machine-readable and Markdown reports
         if: always()
@@ -62,7 +65,7 @@ jobs:
             zed-fleet-report.md
           if-no-files-found: error
           retention-days: 30
-      - name: Enforce audit result
+      - name: Validate audit execution
         if: always()
         shell: bash
         env:
@@ -70,3 +73,16 @@ jobs:
         run: |
           test -n "$AUDIT_STATUS"
           exit "$AUDIT_STATUS"
+      - name: Enforce scheduled or requested fleet contract
+        if: ${{ always() && steps.audit.outputs.status == '0' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path("zed-fleet-report.json").read_text())
+          errors = int(report["summary"]["errors"])
+          if errors:
+              raise SystemExit(f"Zed fleet audit found {errors} error(s); see the report artifact")
+          PY
