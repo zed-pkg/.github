@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import hashlib
 import re
 import sys
 from pathlib import Path
@@ -36,6 +37,28 @@ SECRET_PATTERNS = [
     re.compile(r'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----'),
     re.compile(r'(?i)authorization:\\s*bearer\\s+[A-Za-z0-9._-]{16,}'),
 ]
+ALLOWED_SYNTHETIC_SECRET_FIXTURES = {
+    (
+        'blueprints/zed-qtcreator/tests/test_zed_inspector.cpp',
+        'd66f4cc7d7c08ec57ca73717f8625478602fd28781494d2876f871b01f4f35b9',
+    ),
+    (
+        'blueprints/zed-visual-studio/tests/Zed.VisualStudio.Core.Tests/ZedInspectorTests.cs',
+        'd66f4cc7d7c08ec57ca73717f8625478602fd28781494d2876f871b01f4f35b9',
+    ),
+    (
+        'blueprints/zed-vscode/test/inspector.test.js',
+        'd66f4cc7d7c08ec57ca73717f8625478602fd28781494d2876f871b01f4f35b9',
+    ),
+    (
+        'blueprints/zed-eclipse/src/test/java/tech/zpkg/eclipse/ZedInspectorTest.java',
+        'd66f4cc7d7c08ec57ca73717f8625478602fd28781494d2876f871b01f4f35b9',
+    ),
+    (
+        'blueprints/zed-xcode/Tests/ZedCoreTests/ZedInspectorTests.swift',
+        'd66f4cc7d7c08ec57ca73717f8625478602fd28781494d2876f871b01f4f35b9',
+    ),
+}
 
 def fail(message: str) -> None:
     print(f'ERROR: {message}', file=sys.stderr)
@@ -57,12 +80,19 @@ for path in ROOT.rglob('*'):
         text = path.read_text(encoding='utf-8')
     except UnicodeDecodeError:
         continue
+    relative = path.relative_to(ROOT)
     if re.search(r'\{\{[A-Z][A-Z0-9_]*\}\}', text):
         fail(f'unrendered placeholder in {path.relative_to(ROOT)}')
     for pattern in SECRET_PATTERNS:
-        if pattern.search(text):
-            fail(f'possible credential in {path.relative_to(ROOT)}')
-    if text and not text.endswith('\n'):
+        for match in pattern.finditer(text):
+            fingerprint = hashlib.sha256(match.group().encode('utf-8')).hexdigest()
+            if (relative.as_posix(), fingerprint) not in ALLOWED_SYNTHETIC_SECRET_FIXTURES:
+                fail(f'possible credential in {relative}')
+    split_binary_payload = (
+        relative.parent == Path('bootstrap')
+        and '.bundle.b64.part-' in relative.name
+    )
+    if text and not text.endswith('\n') and not split_binary_payload:
         fail(f'missing final newline: {path.relative_to(ROOT)}')
 
 workflow_paths = list((ROOT / '.github/workflows').glob('*.y*ml'))
