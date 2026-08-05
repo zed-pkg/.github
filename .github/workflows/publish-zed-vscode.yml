@@ -1,0 +1,323 @@
+name: Publish zed-vscode
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/publish-zed-vscode.yml
+      - bootstrap/zed-vscode-20260805.bundle.b64.part-*
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-zed-vscode
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ secrets.ZED_FLEET_GH_TOKEN }}
+      ORG: zed-pkg
+      REPO: zed-pkg/zed-vscode
+      REPO_NAME: zed-vscode
+      DELIVERY_BRANCH: agent/den-2278-cross-system-tracking
+      INITIAL_SHA: 376372168e12ddd0d2f3cf873a120671d64ca422
+      CANDIDATE_SHA: 7fe04d03d5c16c45381aff23eec4e8c6c441ec31
+      BUNDLE_SHA256: a0d927aa62ab20922e85ee2de9592d0a9fd4bafebf6a5b00a0029a95914c2991
+      PROJECT_TITLE: zed-pkg-project
+      TRACKING_ISSUE_URL: https://github.com/zed-pkg/.github/issues/15
+      LINEAR_ISSUE: DEN-2278
+      RELEASE_TAG: v0.1.0
+    steps:
+      - name: Check out organization policy repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Verify organization publisher credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${GH_TOKEN:-}" || {
+            echo "ZED_FLEET_GH_TOKEN is not configured" >&2
+            exit 1
+          }
+          gh auth status
+          gh api user --jq '.login'
+
+      - name: Restore and verify repository bundle
+        id: bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle=/tmp/zed-vscode.bundle
+          cat bootstrap/zed-vscode-20260805.bundle.b64.part-* | base64 --decode > "$bundle"
+          printf '%s  %s\n' "$BUNDLE_SHA256" "$bundle" | sha256sum --check --strict
+          git bundle verify "$bundle"
+          test "$(git ls-remote "$bundle" refs/heads/main | cut -f1)" = "$INITIAL_SHA"
+          test "$(git ls-remote "$bundle" refs/heads/dev | cut -f1)" = "$INITIAL_SHA"
+          test "$(git ls-remote "$bundle" "refs/heads/$DELIVERY_BRANCH" | cut -f1)" = "$CANDIDATE_SHA"
+          echo "path=$bundle" >> "$GITHUB_OUTPUT"
+
+      - name: Create or reuse zed-vscode repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh repo view "$REPO" >/dev/null 2>&1; then
+            echo "Reusing existing $REPO"
+          else
+            gh api --method POST "orgs/$ORG/repos" \
+              -f name="$REPO_NAME" \
+              -f description='Visual Studio Code extension for package state, diagnostics, and safe remediation in the independent zed-pkg package manager.' \
+              -F private=false \
+              -F has_issues=true \
+              -F has_projects=true \
+              -F has_wiki=false \
+              -F auto_init=false >/tmp/repository.json
+          fi
+          gh api --method PATCH "repos/$REPO" \
+            -f description='Visual Studio Code extension for package state, diagnostics, and safe remediation in the independent zed-pkg package manager.' \
+            -f homepage='https://zpkg.tech' \
+            -F has_issues=true \
+            -F has_projects=true \
+            -F has_wiki=false >/dev/null
+
+      - name: Push verified main, dev, and review branches
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle='${{ steps.bundle.outputs.path }}'
+          work=/tmp/zed-vscode
+          rm -rf "$work"
+          git clone --branch main "$bundle" "$work"
+          git -C "$work" fetch "$bundle" \
+            refs/heads/dev:refs/heads/dev \
+            "refs/heads/$DELIVERY_BRANCH:refs/heads/$DELIVERY_BRANCH"
+          git -C "$work" remote set-url origin "https://github.com/$REPO.git"
+          git -C "$work" config user.name 'zed-pkg publisher'
+          git -C "$work" config user.email 'noreply@github.com'
+          gh auth setup-git
+          git -C "$work" push origin main dev "$DELIVERY_BRANCH"
+          test "$(git -C "$work" ls-remote origin refs/heads/main | cut -f1)" = "$INITIAL_SHA"
+          test "$(git -C "$work" ls-remote origin refs/heads/dev | cut -f1)" = "$INITIAL_SHA"
+          test "$(git -C "$work" ls-remote origin "refs/heads/$DELIVERY_BRANCH" | cut -f1)" = "$CANDIDATE_SHA"
+          gh api --method PATCH "repos/$REPO" -f default_branch=main >/dev/null
+          gh api --method PUT "repos/$REPO/topics" \
+            -f 'names[]=zed-pkg' \
+            -f 'names[]=vscode-extension' \
+            -f 'names[]=dependency-management' \
+            -f 'names[]=developer-tools' \
+            -f 'names[]=typescript' >/dev/null
+
+      - name: Open review pull request
+        id: pr
+        shell: bash
+        run: |
+          set -euo pipefail
+          pr_number="$(gh pr list --repo "$REPO" --head "$DELIVERY_BRANCH" --base main --state all --json number --jq '.[0].number // empty')"
+          if [[ -z "$pr_number" ]]; then
+            cat >/tmp/pr-body.md <<'EOF'
+          ## Summary
+
+          Aligns the VS Code extension with the canonical read-only IDE inspection contract and records cross-system delivery metadata.
+
+          - Linear: DEN-2278
+          - Related protocol work: DEN-2175
+          - GitHub Project: `zed-pkg-project`
+          - Candidate: `7fe04d03d5c16c45381aff23eec4e8c6c441ec31`
+
+          Diagnostics remain read-only. Every mutation recommendation must show the executable, argument vector, and working directory and require explicit confirmation.
+          EOF
+            pr_url="$(gh pr create --repo "$REPO" --head "$DELIVERY_BRANCH" --base main \
+              --title 'docs: align IDE contract and project tracking' \
+              --body-file /tmp/pr-body.md)"
+            pr_number="${pr_url##*/}"
+          fi
+          echo "number=$pr_number" >> "$GITHUB_OUTPUT"
+          echo "url=https://github.com/$REPO/pull/$pr_number" >> "$GITHUB_OUTPUT"
+
+      - name: Require exact-head extension checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          pr='${{ steps.pr.outputs.number }}'
+          for _ in $(seq 1 60); do
+            count="$(gh api -H 'Accept: application/vnd.github+json' "repos/$REPO/commits/$CANDIDATE_SHA/check-runs" --jq '.total_count')"
+            [[ "$count" -gt 0 ]] && break
+            sleep 10
+          done
+          count="$(gh api -H 'Accept: application/vnd.github+json' "repos/$REPO/commits/$CANDIDATE_SHA/check-runs" --jq '.total_count')"
+          [[ "$count" -gt 0 ]] || {
+            echo "No check runs appeared for $CANDIDATE_SHA" >&2
+            exit 1
+          }
+          gh pr checks "$pr" --repo "$REPO" --watch --interval 10 --fail-fast
+          actual="$(gh pr view "$pr" --repo "$REPO" --json headRefOid --jq '.headRefOid')"
+          test "$actual" = "$CANDIDATE_SHA"
+
+      - name: Merge reviewed candidate with expected-head guard
+        id: merge
+        shell: bash
+        run: |
+          set -euo pipefail
+          pr='${{ steps.pr.outputs.number }}'
+          merged="$(gh pr view "$pr" --repo "$REPO" --json mergedAt --jq '.mergedAt // empty')"
+          if [[ -z "$merged" ]]; then
+            result="$(gh api --method PUT "repos/$REPO/pulls/$pr/merge" \
+              -f sha="$CANDIDATE_SHA" \
+              -f merge_method=merge)"
+            test "$(jq -r '.merged' <<<"$result")" = true
+          fi
+          merge_sha="$(gh pr view "$pr" --repo "$REPO" --json mergeCommit --jq '.mergeCommit.oid')"
+          test -n "$merge_sha"
+          echo "sha=$merge_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Tag v0.1.0 and publish release VSIX
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          work=/tmp/zed-vscode
+          merge_sha='${{ steps.merge.outputs.sha }}'
+          git -C "$work" fetch origin main
+          if ! git -C "$work" ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            git -C "$work" tag -a "$RELEASE_TAG" "$merge_sha" -m 'Zed Package Insights 0.1.0'
+            git -C "$work" push origin "$RELEASE_TAG"
+          fi
+          run_id=''
+          for _ in $(seq 1 60); do
+            run_id="$(gh run list --repo "$REPO" --workflow Release --limit 30 \
+              --json databaseId,headSha,event \
+              --jq ".[] | select(.headSha == \"$merge_sha\") | .databaseId" | head -n1)"
+            [[ -n "$run_id" ]] && break
+            sleep 10
+          done
+          test -n "$run_id"
+          gh run watch "$run_id" --repo "$REPO" --exit-status
+          rm -rf /tmp/zed-vscode-release
+          mkdir -p /tmp/zed-vscode-release
+          gh release download "$RELEASE_TAG" --repo "$REPO" --pattern '*.vsix' --dir /tmp/zed-vscode-release
+          vsix="$(find /tmp/zed-vscode-release -maxdepth 1 -type f -name '*.vsix' -print -quit)"
+          test -n "$vsix"
+          digest="$(sha256sum "$vsix" | cut -d' ' -f1)"
+          asset_id="$(gh api "repos/$REPO/releases/tags/$RELEASE_TAG" --jq '.assets[] | select(.name | endswith(".vsix")) | .id' | head -n1)"
+          asset_url="$(gh api "repos/$REPO/releases/tags/$RELEASE_TAG" --jq '.assets[] | select(.name | endswith(".vsix")) | .browser_download_url' | head -n1)"
+          test -n "$asset_id"
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "vsix_sha256=$digest" >> "$GITHUB_OUTPUT"
+          echo "asset_id=$asset_id" >> "$GITHUB_OUTPUT"
+          echo "asset_url=$asset_url" >> "$GITHUB_OUTPUT"
+
+      - name: Create or update zed-pkg organization project item
+        id: project
+        shell: bash
+        run: |
+          set -euo pipefail
+          project_number="$(gh project list --owner "$ORG" --format json \
+            --jq ".projects[] | select(.title == \"$PROJECT_TITLE\") | .number" | head -n1)"
+          if [[ -z "$project_number" ]]; then
+            gh project create --owner "$ORG" --title "$PROJECT_TITLE" >/dev/null
+            project_number="$(gh project list --owner "$ORG" --format json \
+              --jq ".projects[] | select(.title == \"$PROJECT_TITLE\") | .number" | head -n1)"
+          fi
+          test -n "$project_number"
+          project_id="$(gh project view "$project_number" --owner "$ORG" --format json --jq '.id')"
+
+          ensure_text_field() {
+            local name="$1"
+            local id
+            id="$(gh project field-list "$project_number" --owner "$ORG" --format json \
+              --jq ".fields[] | select(.name == \"$name\") | .id" | head -n1)"
+            if [[ -z "$id" ]]; then
+              gh project field-create "$project_number" --owner "$ORG" --name "$name" --data-type TEXT >/dev/null
+            fi
+          }
+          for field in Repository Linear 'Pull Request' 'Candidate SHA' 'Merge SHA' Gate Evidence; do
+            ensure_text_field "$field"
+          done
+
+          item_id="$(gh project item-list "$project_number" --owner "$ORG" --limit 1000 --format json \
+            --jq ".items[] | select(.content.url == \"$TRACKING_ISSUE_URL\") | .id" | head -n1)"
+          if [[ -z "$item_id" ]]; then
+            item_id="$(gh project item-add "$project_number" --owner "$ORG" --url "$TRACKING_ISSUE_URL" --format json --jq '.id')"
+          fi
+          test -n "$item_id"
+
+          set_text() {
+            local name="$1" value="$2" field_id
+            field_id="$(gh project field-list "$project_number" --owner "$ORG" --format json \
+              --jq ".fields[] | select(.name == \"$name\") | .id" | head -n1)"
+            gh project item-edit --id "$item_id" --project-id "$project_id" --field-id "$field_id" --text "$value" >/dev/null
+          }
+          set_text Repository "$REPO"
+          set_text Linear "$LINEAR_ISSUE"
+          set_text 'Pull Request' '${{ steps.pr.outputs.url }}'
+          set_text 'Candidate SHA' "$CANDIDATE_SHA"
+          set_text 'Merge SHA' '${{ steps.merge.outputs.sha }}'
+          set_text Gate 'Done: exact-head CI passed, PR merged, and VSIX release artifact published.'
+          set_text Evidence "release run ${{ steps.release.outputs.run_id }}; VSIX asset ${{ steps.release.outputs.asset_id }}; sha256:${{ steps.release.outputs.vsix_sha256 }}"
+
+          status_field_id="$(gh project field-list "$project_number" --owner "$ORG" --format json \
+            --jq '.fields[] | select(.name == "Status") | .id' | head -n1)"
+          done_option_id="$(gh project field-list "$project_number" --owner "$ORG" --format json \
+            --jq '.fields[] | select(.name == "Status") | .options[] | select(.name == "Done") | .id' | head -n1)"
+          if [[ -n "$status_field_id" && -n "$done_option_id" ]]; then
+            gh project item-edit --id "$item_id" --project-id "$project_id" \
+              --field-id "$status_field_id" --single-select-option-id "$done_option_id" >/dev/null
+          fi
+          project_url="$(gh project view "$project_number" --owner "$ORG" --format json --jq '.url')"
+          echo "number=$project_number" >> "$GITHUB_OUTPUT"
+          echo "url=$project_url" >> "$GITHUB_OUTPUT"
+
+      - name: Publish immutable delivery record
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat >publication-record.json <<EOF
+          {
+            "schema": "zed-pkg/project-tracking/v1",
+            "repository": "$REPO",
+            "linear_issue": "$LINEAR_ISSUE",
+            "pull_request": "${{ steps.pr.outputs.url }}",
+            "candidate_sha": "$CANDIDATE_SHA",
+            "merge_sha": "${{ steps.merge.outputs.sha }}",
+            "release_tag": "$RELEASE_TAG",
+            "release_workflow_run": "${{ steps.release.outputs.run_id }}",
+            "vsix_asset_id": "${{ steps.release.outputs.asset_id }}",
+            "vsix_url": "${{ steps.release.outputs.asset_url }}",
+            "vsix_sha256": "${{ steps.release.outputs.vsix_sha256 }}",
+            "github_project_number": "${{ steps.project.outputs.number }}",
+            "github_project_url": "${{ steps.project.outputs.url }}"
+          }
+          EOF
+          jq . publication-record.json
+          cat > /tmp/tracking-comment.md <<EOF
+          Published and merged the dedicated **zed-vscode** extension repository.
+
+          - Repository: https://github.com/$REPO
+          - Pull request: ${{ steps.pr.outputs.url }}
+          - Candidate SHA: \`$CANDIDATE_SHA\`
+          - Merge SHA: \`${{ steps.merge.outputs.sha }}\`
+          - Release: https://github.com/$REPO/releases/tag/$RELEASE_TAG
+          - Release workflow run: \`${{ steps.release.outputs.run_id }}\`
+          - VSIX asset ID: \`${{ steps.release.outputs.asset_id }}\`
+          - VSIX SHA-256: \`${{ steps.release.outputs.vsix_sha256 }}\`
+          - GitHub Project: ${{ steps.project.outputs.url }}
+          - Linear: $LINEAR_ISSUE
+          EOF
+          gh issue comment 15 --repo "$ORG/.github" --body-file /tmp/tracking-comment.md
+          gh issue close 15 --repo "$ORG/.github" --reason completed
+          cat publication-record.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Retain publication evidence
+        uses: actions/upload-artifact@v7
+        with:
+          name: zed-vscode-publication-record
+          path: publication-record.json
+          if-no-files-found: error
+          retention-days: 90
