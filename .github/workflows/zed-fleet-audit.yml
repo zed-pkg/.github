@@ -1,0 +1,72 @@
+name: Zed fleet audit
+
+on:
+  workflow_dispatch:
+    inputs:
+      orgs:
+        description: Comma-separated GitHub organizations to audit
+        required: true
+        default: zed-pkg
+  schedule:
+    - cron: "19 8 * * 1"
+  pull_request:
+    paths:
+      - tools/zed_fleet_audit.py
+      - docs/zed-fleet-contract.md
+      - .github/workflows/zed-fleet-audit.yml
+  push:
+    branches: [main]
+    paths:
+      - tools/zed_fleet_audit.py
+      - docs/zed-fleet-contract.md
+      - .github/workflows/zed-fleet-audit.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Audit real repository contents
+        id: audit
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.ZED_FLEET_GH_TOKEN || github.token }}
+          AUDIT_ORGS: ${{ github.event.inputs.orgs || 'zed-pkg' }}
+        run: |
+          set +e
+          python3 tools/zed_fleet_audit.py \
+            --orgs "$AUDIT_ORGS" \
+            --json zed-fleet-report.json \
+            --markdown zed-fleet-report.md
+          status=$?
+          set -e
+          cat zed-fleet-report.md >> "$GITHUB_STEP_SUMMARY"
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+      - name: Upload machine-readable and Markdown reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: zed-fleet-audit
+          path: |
+            zed-fleet-report.json
+            zed-fleet-report.md
+          if-no-files-found: error
+          retention-days: 30
+      - name: Enforce audit result
+        if: always()
+        shell: bash
+        env:
+          AUDIT_STATUS: ${{ steps.audit.outputs.status }}
+        run: |
+          test -n "$AUDIT_STATUS"
+          exit "$AUDIT_STATUS"
