@@ -1,66 +1,52 @@
-# Zed IDE insight contract
+# Zed IDE integration parity contract
 
-All Zed IDE integrations should be thin native shells over one stable diagnostic protocol supplied by `zed-cli`.
+Every integration is a native editor shell over the same read-only Zed Package
+Manager inspection model. Package resolution remains owned by `zed-cli`.
 
-## Proposed command
+## Levels
 
-```sh
-zed inspect --workspace <absolute-path> --json
+1. **Core conformance** — deterministic report model, argv process execution,
+   bounded execution, schema validation, output redaction, safe action metadata,
+   and unit tests.
+2. **Native shell** — editor-native diagnostics, package tree/tool window,
+   refresh triggers, exact-command preview, and explicit mutation confirmation.
+3. **Distribution** — reproducible package, retained CI artifact, clean-profile
+   installation tests, marketplace/update-channel publication, and provenance.
+
+A candidate may pass core conformance without being described as production
+ready. Only integrations satisfying all three levels are “up to par” for users.
+
+## Required diagnostics
+
+- no manifest, unreadable/malformed manifest, and invalid package identity;
+- no lockfile, unreadable/malformed/unsupported/stale lockfile;
+- declared dependency missing from the lock;
+- materialization missing or inconsistent;
+- interrupted `.zpkg-staging` transaction;
+- unavailable, timed-out, failing, unsupported, or wrong `zed` executable;
+- integrity/provenance mismatch when reported by the CLI.
+
+## Process boundary
+
+The preferred command is:
+
+```text
+zed inspect --workspace <absolute-root> --json
 ```
 
-The command must be read-only. It must never install, remove, update, publish, or mutate package state. IDEs may refresh it when a solution/workspace opens, when `.zpkg.toml` or `.zpkg.lock` changes, and on explicit user request.
+The process adapter MUST invoke an executable and argument vector without a
+shell, set an explicit working directory, enforce a timeout or cancellation
+boundary, reject unknown schema versions, redact credentials, and fail closed
+to a visible diagnostic. It never executes returned actions.
 
-## JSON envelope
+## Action boundary
 
-```json
-{
-  "schemaVersion": 1,
-  "workspaceRoot": "/workspace",
-  "zedVersion": "0.1.0",
-  "package": {
-    "name": "acme/widget",
-    "manifestPath": "/workspace/.zpkg.toml",
-    "lockPath": "/workspace/.zpkg.lock"
-  },
-  "dependencies": [],
-  "issues": [
-    {
-      "id": "lock.stale",
-      "severity": "warning",
-      "title": "Lockfile is older than the manifest",
-      "detail": "Dependency intent changed after the last resolution.",
-      "files": [".zpkg.toml", ".zpkg.lock"],
-      "actions": [
-        {
-          "id": "install",
-          "title": "Resolve and install",
-          "kind": "command",
-          "command": "zed",
-          "arguments": ["install"],
-          "requiresConfirmation": true
-        }
-      ]
-    }
-  ]
-}
-```
+Mutating actions are recommendations. Before execution the native shell MUST
+show the executable, arguments, and working directory and obtain explicit user
+confirmation. Refresh/startup paths are read-only.
 
-## Severity and action rules
+## Sandbox evidence
 
-Severities are `info`, `warning`, and `error`. Each issue must have a stable machine-readable ID. Actions are recommendations, not automatic execution. Every mutating action requires an explicit user confirmation in the IDE. The extension must show the exact command and working directory before execution.
-
-## Minimum diagnostics
-
-- missing or malformed `.zpkg.toml`
-- missing, malformed, or stale `.zpkg.lock`
-- declared dependency absent from the lockfile
-- locked dependency no longer declared directly or transitively
-- integrity/provenance mismatch
-- unavailable `zed` executable or unsupported CLI version
-- offline state when a requested action needs network access
-- incompatible adapter/target configuration
-- available safe updates and yanked versions
-
-## Recommended architecture
-
-Each IDE repository should contain a native UI layer and a small process adapter. Common schemas belong in `zed-interfaces`; command behavior belongs in `zed-cli`. IDE implementations must not independently resolve dependency graphs.
+`zed-pkg-test/zed-pkg-e2e` owns cross-editor fixtures and native toolchain jobs.
+Tests run in temporary workspaces and must not use real credentials, user package
+homes, or mutable production registries.
