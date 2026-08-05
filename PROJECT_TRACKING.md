@@ -2,8 +2,8 @@
 
 Last verified: 2026-08-05
 
-This document records only identifiers that were read from their canonical
-systems. Do not infer a project number, channel name, or integration state from
+This document records only identifiers read from canonical systems. Do not
+infer a project number, channel name, release state, or integration state from
 repository naming.
 
 ## Canonical organization
@@ -54,17 +54,19 @@ Actions operations but not Projects v2 GraphQL mutations. Requests to the
 legacy organization-project endpoint and an assumed `/projects/1` URL returned
 `404`, so this repository must not claim that project number 1 exists.
 
-Until the Projects v2 board is verified or created through an authorized
-GraphQL/`gh project` session:
+Creation or verification is tracked in
+[`zed-pkg/.github#13`](https://github.com/zed-pkg/.github/issues/13).
+
+Until the board is verified or created through an authorized GraphQL or
+`gh project` session:
 
 - use the Linear project above as the portfolio roadmap;
 - use GitHub issues and pull requests as the repository execution ledger;
-- do not fabricate a project URL in issue templates, automation, or status
-  reports;
-- once created, add the verified project number, node ID, URL, owner, and field
-  schema to this file in a reviewed PR.
+- do not fabricate a project URL in issue templates, automation, or reports;
+- once created, record the verified project number, node ID, URL, owner, and
+  field schema here in a reviewed PR.
 
-Recommended Projects v2 fields when the board is created:
+Recommended Projects v2 fields:
 
 | Field | Purpose |
 | --- | --- |
@@ -76,49 +78,80 @@ Recommended Projects v2 fields when the board is created:
 | `Target branch` | `main`, `dev`, or another explicitly reviewed branch |
 | `Blocked by` | Upstream PR, package, credential, or runner dependency |
 
-## Current CLI merge train
+## Current CLI and package merge train
 
-The active dependency sequence is intentionally ordered:
+Completed foundations:
 
-1. [`zed-pkg/zed-cli#198`](https://github.com/zed-pkg/zed-cli/pull/198)
-   is already merged. It pinned Cargo to the standalone `zed-pkg/zed-lock`
-   repository at an immutable commit, regenerated `Cargo.lock`, removed the
-   duplicate `crates/zed-lock` copy, and split crate-owned from CLI-owned CI.
-2. [`zed-pkg/zed-lock#2`](https://github.com/zed-pkg/zed-lock/pull/2)
-   hardens that standalone package, verifies Linux/macOS/Windows conformance,
-   and emits a reviewable `.crate` plus SHA-256 artifact. It changes package
-   review and release evidence; it does not restore an in-tree CLI copy.
-3. [`zed-pkg/zed-cli#195`](https://github.com/zed-pkg/zed-cli/pull/195)
-   must be rebuilt after `zed-lock#2` as a package-graph-only delta on the
-   current CLI mainline. The rebuilt PR may add the concrete `zed-pkg/zed-lock`
-   Zed dependency and external-package validation, but must preserve #198's
-   external Cargo source and deletion of `crates/zed-lock`.
-4. The `dev` branch is currently a direct ancestor of `main`; the rebuilt #195
-   merge should carry the three mainline migration commits into `dev` rather
-   than reintroducing stale internal-lock files.
+1. [`zed-pkg/zed-cli#162`](https://github.com/zed-pkg/zed-cli/pull/162)
+   merged explicit global executable profiles and controlled PATH ownership.
+2. [`zed-pkg/zed-cli#198`](https://github.com/zed-pkg/zed-cli/pull/198)
+   moved Cargo to the standalone lock repository, regenerated `Cargo.lock`,
+   removed the duplicate `crates/zed-lock` copy, and split crate-owned from
+   CLI-owned CI.
+3. [`zed-pkg/zed-lock#2`](https://github.com/zed-pkg/zed-lock/pull/2)
+   merged as immutable commit
+   `a0dc78d385bc3ab553d3027b427f5f1428239c9c`. It versions the hardened package
+   as 0.1.1, declares Rust 1.88 as the actual MSRV, corrects Zed package
+   metadata, adds fail-closed provenance/metadata tests, passes Linux/macOS/
+   Windows conformance, and emits a reviewed `.crate` plus SHA-256 artifact.
+4. [`zed-pkg/zed-cli#199`](https://github.com/zed-pkg/zed-cli/pull/199)
+   merged the supported `macos-15-intel` runner for the unchanged
+   `x86_64-apple-darwin` release target.
 
-Independent feature work:
+Active ordered work:
 
-- [`zed-pkg/zed-cli#131`](https://github.com/zed-pkg/zed-cli/pull/131)
-  materializes deterministic, conflict-safe `zed env export mise` product code
-  on current `main`. The temporary write workflow has removed itself; only
-  ordinary source, docs, flags, and tests remain.
-- Global executable profiles were merged in
-  [`zed-pkg/zed-cli#162`](https://github.com/zed-pkg/zed-cli/pull/162).
+1. The `zed-lock` branch `release/v0.1.1` runs a one-shot publisher that checks
+   out exact merge commit `a0dc78d385bc3ab553d3027b427f5f1428239c9c`,
+   revalidates the package, creates immutable tag/release `v0.1.1`, and uploads
+   a newly generated crate and checksum. It does not alter `v0.1.0`.
+2. [`zed-pkg/zed-cli#204`](https://github.com/zed-pkg/zed-cli/pull/204)
+   updates the exact Cargo revision and generated lock entry to the hardened
+   merge commit and adds `zed-pkg/zed-lock = "^0.1.1"` to the Zed package
+   graph. Its carrier proves no non-lock package changes, removes itself, and
+   leaves ordinary source for the full matrix.
+3. [`zed-pkg/zed-cli#203`](https://github.com/zed-pkg/zed-cli/pull/203)
+   certifies the real compiled global install, frozen restore, lock graph,
+   PATH copy, transitive package, and uninstall lifecycle against a hermetic
+   `file://` registry.
+4. [`zed-pkg/zed-cli#200`](https://github.com/zed-pkg/zed-cli/pull/200)
+   cleanly rematerializes deterministic, conflict-safe `zed env export mise`
+   on the latest mainline, preserving the typed write boundary and real-CLI
+   reserved-path regressions.
+5. The release-candidate branch `release/v0.1.0-rc.3` rebuilds all seven CLI
+   target archives and checksums using the corrected Intel macOS runner. It is
+   a retained review-artifact lane, not a public `v*` release.
+
+Superseded work:
+
+- [`zed-pkg/zed-cli#195`](https://github.com/zed-pkg/zed-cli/pull/195) is closed
+  because it assumed the now-removed internal lock crate.
+- [`zed-pkg/zed-cli#131`](https://github.com/zed-pkg/zed-cli/pull/131) is closed
+  in favor of the current-main semantic carrier #200.
+- [`zed-pkg/zed-cli#202`](https://github.com/zed-pkg/zed-cli/pull/202) is closed
+  because merged PR #199 already contains its exact one-line runner change.
 
 Merge rules:
 
 - never merge a dependent PR before its canonical dependency is green and
   merged;
-- never weaken the package graph to make an invented package coordinate pass;
-- use a semantic merge or rebase when branches overlap, preserving the best
+- never weaken the package graph to make an invented coordinate pass;
+- use a semantic merge or current-main carrier when branches overlap, preserving
   compatible behavior and tests rather than choosing one side wholesale;
-- publish a package or release only after immutable artifact, checksum,
-  provenance, and repository-specific CI evidence are available.
+- merge only the exact ordinary-source head whose required checks passed;
+- publish only after immutable source, checksum, provenance, and
+  repository-specific CI evidence are available.
 
-## Review artifacts
+## Releases and review artifacts
 
-CI artifacts are review evidence, not automatic public releases. For example,
-`zed-lock` packages the exact `.crate` plus SHA-256 after its complete
-three-platform matrix succeeds. Creating a GitHub release, tag, or crates.io
-publication remains a separate explicit release decision.
+[`zed-lock v0.1.0`](https://github.com/zed-pkg/zed-lock/releases/tag/v0.1.0)
+is already published from the original extraction commit
+`0fc100afc3cd60b5ce091b4207f910bf08f2cfb7`. It remains immutable.
+
+The hardened package is a distinct **v0.1.1** release from merge commit
+`a0dc78d385bc3ab553d3027b427f5f1428239c9c`. Its release is considered
+published only after GitHub reports the tag/release and both crate/checksum
+assets at that exact commit.
+
+CI artifacts are review evidence, not automatic public releases. CLI
+`release/**` branches retain candidate archives; only `v*` tags invoke the
+public GitHub Release job.
