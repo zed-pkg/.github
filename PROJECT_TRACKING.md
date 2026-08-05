@@ -54,6 +54,9 @@ Actions operations but not Projects v2 GraphQL mutations. Requests to the
 legacy organization-project endpoint and an assumed `/projects/1` URL returned
 `404`, so this repository must not claim that project number 1 exists.
 
+The creation/verification work is tracked in
+[`zed-pkg/.github#13`](https://github.com/zed-pkg/.github/issues/13).
+
 Until the Projects v2 board is verified or created through an authorized
 GraphQL/`gh project` session:
 
@@ -81,28 +84,30 @@ Recommended Projects v2 fields when the board is created:
 The active dependency sequence is intentionally ordered:
 
 1. [`zed-pkg/zed-cli#198`](https://github.com/zed-pkg/zed-cli/pull/198)
-   is already merged. It pinned Cargo to the standalone `zed-pkg/zed-lock`
-   repository at an immutable commit, regenerated `Cargo.lock`, removed the
-   duplicate `crates/zed-lock` copy, and split crate-owned from CLI-owned CI.
+   is merged. It pinned Cargo to standalone `zed-lock` commit
+   `0fc100afc3cd60b5ce091b4207f910bf08f2cfb7`, regenerated `Cargo.lock`, removed
+   the duplicate `crates/zed-lock` workspace member, and split crate-owned from
+   CLI-owned CI.
 2. [`zed-pkg/zed-lock#2`](https://github.com/zed-pkg/zed-lock/pull/2)
-   hardens that standalone package, verifies Linux/macOS/Windows conformance,
-   and emits a reviewable `.crate` plus SHA-256 artifact. It changes package
-   review and release evidence; it does not restore an in-tree CLI copy.
-3. [`zed-pkg/zed-cli#195`](https://github.com/zed-pkg/zed-cli/pull/195)
-   must be rebuilt after `zed-lock#2` as a package-graph-only delta on the
-   current CLI mainline. The rebuilt PR may add the concrete `zed-pkg/zed-lock`
-   Zed dependency and external-package validation, but must preserve #198's
-   external Cargo source and deletion of `crates/zed-lock`.
-4. The `dev` branch is currently a direct ancestor of `main`; the rebuilt #195
-   merge should carry the three mainline migration commits into `dev` rather
-   than reintroducing stale internal-lock files.
+   hardens the standalone repository as **v0.1.1**, declares the actual Rust
+   1.88 MSRV, verifies Linux/macOS/Windows conformance, and emits a reviewable
+   `.crate` plus SHA-256 artifact.
+3. After #2 merges, a fresh current-`main` CLI PR must update the immutable Cargo
+   pin and `Cargo.lock` to the hardened merge commit, add
+   `zed-pkg/zed-lock = "^0.1.1"` to the Zed package graph, and validate the
+   canonical external package. It must preserve #198's removal of the internal
+   crate.
+4. [`zed-pkg/zed-cli#195`](https://github.com/zed-pkg/zed-cli/pull/195) is closed
+   as superseded because its transitional path-edge design predates #198.
 
 Independent feature work:
 
-- [`zed-pkg/zed-cli#131`](https://github.com/zed-pkg/zed-cli/pull/131)
-  materializes deterministic, conflict-safe `zed env export mise` product code
-  on current `main`. The temporary write workflow has removed itself; only
-  ordinary source, docs, flags, and tests remain.
+- [`zed-pkg/zed-cli#200`](https://github.com/zed-pkg/zed-cli/pull/200)
+  cleanly rematerializes deterministic, conflict-safe `zed env export mise` on
+  the latest `main` rather than merging #131's obsolete ancestry.
+- [`zed-pkg/zed-cli#131`](https://github.com/zed-pkg/zed-cli/pull/131) remains the
+  reviewed predecessor and should close as superseded after #200 produces and
+  validates an ordinary-source head.
 - Global executable profiles were merged in
   [`zed-pkg/zed-cli#162`](https://github.com/zed-pkg/zed-cli/pull/162).
 
@@ -116,9 +121,14 @@ Merge rules:
 - publish a package or release only after immutable artifact, checksum,
   provenance, and repository-specific CI evidence are available.
 
-## Review artifacts
+## Releases and review artifacts
 
-CI artifacts are review evidence, not automatic public releases. For example,
-`zed-lock` packages the exact `.crate` plus SHA-256 after its complete
-three-platform matrix succeeds. Creating a GitHub release, tag, or crates.io
-publication remains a separate explicit release decision.
+[`zed-lock v0.1.0`](https://github.com/zed-pkg/zed-lock/releases/tag/v0.1.0)
+is already published from the original extraction commit with a crate and
+checksum asset. The hardened package is versioned **0.1.1** so that release is
+not overwritten or silently retargeted.
+
+CI artifacts are review evidence, not automatic public releases. `zed-lock#2`
+packages the exact `zed-lock-0.1.1.crate` plus SHA-256 after its complete
+three-platform matrix succeeds. Creating the immutable `v0.1.1` release and
+updating the CLI pin are separate ordered steps.
