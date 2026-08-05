@@ -7,15 +7,14 @@ supporting documentation. It is unrelated to the Zed text editor.
 ## Planning and delivery
 
 - **Canonical Linear project:** [`github.com/zed-pkg`](https://linear.app/denman/project/githubcomzed-pkg-5a53230ae6cc)
-- **Intended GitHub Project title:** `zed-pkg-project`
+- **Canonical GitHub Project:** [`zed-pkg-project`](https://github.com/orgs/zed-pkg/projects/1) (project 1)
 - **Cross-system registry:** [`zed-pkg/zed-docs` doc 33](https://github.com/zed-pkg/zed-docs/blob/main/docs/33-github-linear-project-registry.md)
 - **Machine-readable mapping:** [`github-linear-project-registry.toml`](https://github.com/zed-pkg/zed-docs/blob/main/config/github-linear-project-registry.toml)
 - **Linear registry document:** [GitHub organization → Linear project → GitHub Project registry](https://linear.app/denman/document/github-organization-linear-project-github-project-registry-997be66819bb)
 
-The organization Project number and URL are intentionally not claimed until
-GitHub returns them. The current GitHub App can administer repositories, issues,
-pull requests, checks, workflows, and releases, but organization Projects still
-require Projects read/write permission. Do not infer `/projects/1`.
+Project 1 is the verified canonical organization board. Fleet reconciliation
+keeps its exact title, active state, governance issue, and routing documentation
+aligned with the Linear project.
 
 ## Repository families
 
@@ -47,3 +46,13 @@ issues, Project fields, or generated artifacts.
 - Keep cross-repository dependencies explicit and pinned where reproducibility matters.
 
 Organization-wide contribution and security guidance lives in this `.github` repository.
+
+<!-- org-project-routing:start -->
+## Planning and delivery routing
+
+- [GitHub Project: zed-pkg-project](https://github.com/orgs/zed-pkg/projects/1)
+- [Linear planning project](https://linear.app/denman/project/githubcomzed-pkg-5a53230ae6cc)
+- [Detailed project-routing contract](../docs/PROJECTS.md)
+
+GitHub owns code and delivery evidence; Linear owns planning and dependencies. The linked organization Project provides the cross-repository execution view.
+<!-- org-project-routing:end -->
