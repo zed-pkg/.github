@@ -29,6 +29,11 @@ RUNTIMES = {
 }
 DEP_RE = re.compile(r'^\s*"([^"]+/[^"]+)"\s*=', re.M)
 TARGET_RE = re.compile(r"^\s*\[targets\.([^\]]+)\]\s*$", re.M)
+REPO_PART_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+SCP_GITHUB_RE = re.compile(
+    r"^git@github\.com:(?P<org>[A-Za-z0-9_.-]+)/(?P<repo>[A-Za-z0-9_.-]+?)(?:\.git)?$"
+)
+RELATIVE_RE = re.compile(r"^\.\.?/(?P<repo>[A-Za-z0-9_.-]+?)(?:\.git)?$")
 
 
 class APIError(RuntimeError):
@@ -99,6 +104,31 @@ def coordinate(manifest: str | None) -> str | None:
     org = re.search(r'^org\s*=\s*"([^"]+)"', package.group(1), re.M)
     name = re.search(r'^name\s*=\s*"([^"]+)"', package.group(1), re.M)
     return f"{org.group(1)}/{name.group(1)}" if org and name else None
+
+
+def github_repository(raw_url: str, default_org: str) -> str | None:
+    """Return a validated owner/repository pair for supported .gitmodules URLs."""
+    value = raw_url.strip().strip('"').strip("'")
+    relative = RELATIVE_RE.fullmatch(value)
+    if relative:
+        return f"{default_org}/{relative.group('repo')}"
+
+    scp = SCP_GITHUB_RE.fullmatch(value)
+    if scp:
+        return f"{scp.group('org')}/{scp.group('repo')}"
+
+    parsed = urllib.parse.urlparse(value)
+    if parsed.scheme not in {"https", "ssh"} or parsed.hostname != "github.com":
+        return None
+    parts = [part for part in parsed.path.strip("/").split("/") if part]
+    if len(parts) != 2:
+        return None
+    org, repo = parts
+    if repo.endswith(".git"):
+        repo = repo[:-4]
+    if not REPO_PART_RE.fullmatch(org) or not REPO_PART_RE.fullmatch(repo):
+        return None
+    return f"{org}/{repo}"
 
 
 def first(names: set[str], *candidates: str) -> str | None:
@@ -209,14 +239,34 @@ def audit_family(gh: GitHub, org: str, repos: set[str], clients: str) -> dict:
         mono_manifest = gh.text(mono_full, ".zpkg.toml")
         if not mono_manifest or "[targets.repository]" not in mono_manifest:
             findings.append(finding("error", "monorepo-invalid-manifest", "Monorepo lacks Zed repository target"))
-        for dep in DEP_RE.findall(mono_manifest or ""):
+
+        mono_deps = set(DEP_RE.findall(mono_manifest or ""))
+        mono_deps_lower = {dep.lower(): dep for dep in mono_deps}
+        for dep in mono_deps:
             name = dep.rsplit("/", 1)[-1].lower()
             if name.endswith(("-infra", "-cli", "-cli.rs")):
                 findings.append(finding("error", "monorepo-forbidden-zed-dependency", dep))
-        for url in re.findall(r"^\s*url\s*=\s*(.+)$", gh.text(mono_full, ".gitmodules") or "", re.M):
-            name = url.removesuffix(".git").rstrip("/").rsplit("/", 1)[-1].rsplit(":", 1)[-1].lower()
+
+        gitmodules = gh.text(mono_full, ".gitmodules") or ""
+        for raw_url in re.findall(r"^\s*url\s*=\s*(.+)$", gitmodules, re.M):
+            repo_full = github_repository(raw_url, org)
+            fallback_name = raw_url.strip().strip('"').strip("'").removesuffix(".git").rstrip("/").rsplit("/", 1)[-1].rsplit(":", 1)[-1]
+            name = (repo_full.rsplit("/", 1)[-1] if repo_full else fallback_name).lower()
             if name.endswith(("-infra", "-cli", "-cli.rs")):
                 findings.append(finding("error", "monorepo-forbidden-submodule", name))
+
+            if not repo_full:
+                continue
+            submodule_manifest = gh.text(repo_full, ".zpkg.toml")
+            submodule_coordinate = coordinate(submodule_manifest)
+            if submodule_coordinate and submodule_coordinate.lower() in mono_deps_lower:
+                findings.append(
+                    finding(
+                        "error",
+                        "monorepo-dual-zed-submodule-ownership",
+                        f"{submodule_coordinate} is both a Zed dependency and Git submodule ({repo_full})",
+                    )
+                )
 
     return {
         "org": org, "prefix": prefix,
