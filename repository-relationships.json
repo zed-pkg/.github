@@ -1,10 +1,632 @@
 {
+  "$schema": "./repository-relationships.schema.json",
+  "audience": "public",
+  "generated": {
+    "complete_for_visibility": "public",
+    "generated_at": "2026-08-05T21:07:32Z",
+    "generator_version": "2026-08-04.1",
+    "inventory_digest": "sha256:9d3ca6e1b77d3461489af42f430dd242f64dbcfe915bf2b9061dc1de979a60de",
+    "managed_by": "ore-repository-relationship-rollout",
+    "omitted_repository_count": 0,
+    "private_repositories_omitted": false,
+    "source": "GitHub GraphQL repository inventory plus reviewed manual declarations"
+  },
+  "owner": {
+    "account_type": "organization",
+    "dotgithub_repository": "zed-pkg/.github",
+    "github_id": "308416455",
+    "linear_project": {
+      "id": "9107ce62-1112-43ff-89bc-f442613c4156",
+      "name": "github.com/zed-pkg",
+      "team_id": "eb8ab169-5afe-4b6f-9cab-3f2aa3e887dc",
+      "url": "https://linear.app/denman/project/githubcomzed-pkg-5a53230ae6cc",
+      "workspace": "denman"
+    },
+    "login": "zed-pkg",
+    "mapping_id": "context:zed-pkg"
+  },
+  "private_registry": {
+    "contains_non_public_inventory": false,
+    "digest": "sha256:bbd78096e9708bb3018d95fc85a0d26178afc2cb18a38927a8be91b79221b223",
+    "path": "owners/zed-pkg.json",
+    "repository": "ORESoftware/project-registry"
+  },
+  "relationships": [
+    {
+      "confidence": 1.0,
+      "evidence": [
+        {
+          "kind": "github-owner-membership",
+          "source": "GitHub GraphQL repository inventory"
+        }
+      ],
+      "from": "zed-pkg/.github",
+      "id": "sha256:96bfca77e8078db2893f523e6ad3d9fdd84633310139b0d7b1af991fe15798a3",
+      "notes": "Organization .github policy and community-health defaults govern this sibling repository.",
+      "required": true,
+      "scope": "organization",
+      "status": "declared",
+      "to": "zed-pkg/zed-api-server.rs",
+      "type": "governs"
+    },
+    {
+      "confidence": 1.0,
+      "evidence": [
+        {
+          "kind": "github-owner-membership",
+          "source": "GitHub GraphQL repository inventory"
+        }
+      ],
+      "from": "zed-pkg/.github",
+      "id": "sha256:d637390cd4bb2d626bee5eae03c6f2e6dfe06139a4a80ce489a0c7a59d0c2747",
+      "notes": "Organization .github policy and community-health defaults govern this sibling repository.",
+      "required": true,
+      "scope": "organization",
+      "status": "declared",
+      "to": "zed-pkg/zed-cli",
+      "type": "governs"
+    },
+    {
+      "confidence": 1.0,
+      "evidence": [
+        {
+          "kind": "github-owner-membership",
+          "source": "GitHub GraphQL repository inventory"
+        }
+      ],
+      "from": "zed-pkg/.github",
+      "id": "sha256:0826f31918cd8b582a62e84b18945c5dd1a0628efee5e6d34d60235d94fcc20c",
+      "notes": "Organization .github policy and community-health defaults govern this sibling repository.",
+      "required": true,
+      "scope": "organization",
+      "status": "declared",
+      "to": "zed-pkg/zed-clients",
+      "type": "governs"
+    },
+    {
+      "confidence": 1.0,
+      "evidence": [
+        {
+          "kind": "github-owner-membership",
+          "source": "GitHub GraphQL repository inventory"
+        }
+      ],
+      "from": "zed-pkg/.github",
+      "id": "sha256:a4561e25e67bb521b4f762a43bc5661f277c0cd5b6e188e2b920e74fa436be9a",
+      "notes": "Organization .github policy and community-health defaults govern this sibling repository.",
+      "required": true,
+      "scope": "organization",
+      "status": "declared",
+      "to": "zed-pkg/zed-docs",
+      "type": "governs"
+    },
+    {
+      "confidence": 1.0,
+      "evidence": [
+        {
+          "kind": "github-owner-membership",
+          "source": "GitHub GraphQL repository inventory"
+        }
+      ],
+      "from": "zed-pkg/.github",
+      "id": "sha256:bc2bea63bd363e1ae41e1ed3686c4ea85b909be41c6e28df5cd7ba9fd444306b",
+      "notes": "Organization .github policy and community-health defaults govern this sibling repository.",
+      "required": true,
+      "scope": "organization",
+      "status": "declared",
+      "to": "zed-pkg/zed-e2e",
+      "type": "governs"
+    },
+    {
+      "confidence": 1.0,
+      "evidence": [
+        {
+          "kind": "github-owner-membership",
+          "source": "GitHub GraphQL repository inventory"
+        }
+      ],
+      "from": "zed-pkg/.github",
+      "id": "sha256:09b84d4ab92fd4e1916d6d2fa383aff78c80bcec9ff4643fa87a6670613abb59",
+      "notes": "Organization .github policy and community-health defaults govern this sibling repository.",
+      "required": true,
+      "scope": "organization",
+      "status": "declared",
+      "to": "zed-pkg/zed-infra",
+      "type": "governs"
+    },
+    {
+      "confidence": 1.0,
+      "evidence": [
+        {
+          "kind": "github-owner-membership",
+          "source": "GitHub GraphQL repository inventory"
+        }
+      ],
+      "from": "zed-pkg/.github",
+      "id": "sha256:caf5e4844ef9e49ed7604901b6d38bd58a71f690299bc975343577375f2cea51",
+      "notes": "Organization .github policy and community-health defaults govern this sibling repository.",
+      "required": true,
+      "scope": "organization",
+      "status": "declared",
+      "to": "zed-pkg/zed-intellij",
+      "type": "governs"
+    },
+    {
+      "confidence": 1.0,
+      "evidence": [
+        {
+          "kind": "github-owner-membership",
+          "source": "GitHub GraphQL repository inventory"
+        }
+      ],
+      "from": "zed-pkg/.github",
+      "id": "sha256:55de16b5c3d3f53d4db7b0d8dc2ff5b702764c44cd7bcab4cbc7d280cf204165",
+      "notes": "Organization .github policy and community-health defaults govern this sibling repository.",
+      "required": true,
+      "scope": "organization",
+      "status": "declared",
+      "to": "zed-pkg/zed-interfaces",
+      "type": "governs"
+    },
+    {
+      "confidence": 1.0,
+      "evidence": [
+        {
+          "kind": "github-owner-membership",
+          "source": "GitHub GraphQL repository inventory"
+        }
+      ],
+      "from": "zed-pkg/.github",
+      "id": "sha256:d45f43cf613529b1febcaaf9937505a7d81c5720913ec95bacfcafd7ad7471e7",
+      "notes": "Organization .github policy and community-health defaults govern this sibling repository.",
+      "required": true,
+      "scope": "organization",
+      "status": "declared",
+      "to": "zed-pkg/zed-lock",
+      "type": "governs"
+    },
+    {
+      "confidence": 1.0,
+      "evidence": [
+        {
+          "kind": "github-owner-membership",
+          "source": "GitHub GraphQL repository inventory"
+        }
+      ],
+      "from": "zed-pkg/.github",
+      "id": "sha256:b391ac8a49ef18fb4164de84ca766810ec05e43c0279785a9581d8298b48c1e7",
+      "notes": "Organization .github policy and community-health defaults govern this sibling repository.",
+      "required": true,
+      "scope": "organization",
+      "status": "declared",
+      "to": "zed-pkg/zed-monorepo",
+      "type": "governs"
+    },
+    {
+      "confidence": 1.0,
+      "evidence": [
+        {
+          "kind": "github-owner-membership",
+          "source": "GitHub GraphQL repository inventory"
+        }
+      ],
+      "from": "zed-pkg/.github",
+      "id": "sha256:3ed4c6e49164a9c471ca0d105e6354b5361a588980d52b5a7947ec8287a7c43b",
+      "notes": "Organization .github policy and community-health defaults govern this sibling repository.",
+      "required": true,
+      "scope": "organization",
+      "status": "declared",
+      "to": "zed-pkg/zed-pkg.github.io",
+      "type": "governs"
+    },
+    {
+      "confidence": 1.0,
+      "evidence": [
+        {
+          "kind": "github-owner-membership",
+          "source": "GitHub GraphQL repository inventory"
+        }
+      ],
+      "from": "zed-pkg/.github",
+      "id": "sha256:7864cee9443496ee0fba4f9eb96dd85a64844efc59ab275ee15c533a5bebc371",
+      "notes": "Organization .github policy and community-health defaults govern this sibling repository.",
+      "required": true,
+      "scope": "organization",
+      "status": "declared",
+      "to": "zed-pkg/zed-sublimetext",
+      "type": "governs"
+    },
+    {
+      "confidence": 1.0,
+      "evidence": [
+        {
+          "kind": "github-owner-membership",
+          "source": "GitHub GraphQL repository inventory"
+        }
+      ],
+      "from": "zed-pkg/.github",
+      "id": "sha256:eaabad2ccd3f75f46bf775ccbe0c60fda1c05e3d8dbd71b2d9a6d0c0fd23bece",
+      "notes": "Organization .github policy and community-health defaults govern this sibling repository.",
+      "required": true,
+      "scope": "organization",
+      "status": "declared",
+      "to": "zed-pkg/zed-sync",
+      "type": "governs"
+    },
+    {
+      "confidence": 1.0,
+      "evidence": [
+        {
+          "kind": "github-owner-membership",
+          "source": "GitHub GraphQL repository inventory"
+        }
+      ],
+      "from": "zed-pkg/.github",
+      "id": "sha256:7b29f517285d6886f76d1c61f84a230e7db6bcece6c2aac98a91dc743a945793",
+      "notes": "Organization .github policy and community-health defaults govern this sibling repository.",
+      "required": true,
+      "scope": "organization",
+      "status": "declared",
+      "to": "zed-pkg/zed-web-server.rs",
+      "type": "governs"
+    },
+    {
+      "confidence": 0.82,
+      "evidence": [
+        {
+          "family": "zed",
+          "kind": "paired-repository-naming",
+          "source_role": "api-server",
+          "target_role": "interfaces"
+        }
+      ],
+      "from": "zed-pkg/zed-api-server.rs",
+      "id": "sha256:7b3a67306c67faebe630445e639ded36de67150d6c454f690efcc3276d697949",
+      "notes": "Conservative naming inference; confirm or override in the manual declaration file.",
+      "required": false,
+      "scope": "organization",
+      "status": "inferred",
+      "to": "zed-pkg/zed-interfaces",
+      "type": "depends_on"
+    },
+    {
+      "confidence": 0.82,
+      "evidence": [
+        {
+          "family": "zed",
+          "kind": "paired-repository-naming",
+          "source_role": "clients",
+          "target_role": "interfaces"
+        }
+      ],
+      "from": "zed-pkg/zed-clients",
+      "id": "sha256:0d1565ede21894ae8eae8bef0fd38055405b7952316e01bcdbe8912fd3bc4ceb",
+      "notes": "Conservative naming inference; confirm or override in the manual declaration file.",
+      "required": false,
+      "scope": "organization",
+      "status": "inferred",
+      "to": "zed-pkg/zed-interfaces",
+      "type": "depends_on"
+    },
+    {
+      "confidence": 0.78,
+      "evidence": [
+        {
+          "family": "zed",
+          "kind": "paired-repository-naming"
+        }
+      ],
+      "from": "zed-pkg/zed-e2e",
+      "id": "sha256:7472da2dffaeb6209e7752d231b854247eb2f3c65950e05a6f8d4957bd415808",
+      "notes": "Conservative naming inference; confirm or override in the manual declaration file.",
+      "required": false,
+      "scope": "organization",
+      "status": "inferred",
+      "to": "zed-pkg/zed-monorepo",
+      "type": "tests"
+    },
+    {
+      "confidence": 0.76,
+      "evidence": [
+        {
+          "family": "zed",
+          "kind": "paired-repository-naming"
+        }
+      ],
+      "from": "zed-pkg/zed-infra",
+      "id": "sha256:7b185660e71d351fcc0ef6a1da1b7fc6f53adbfbf32ec69f818ffa53f6280897",
+      "notes": "Conservative naming inference; confirm or override in the manual declaration file.",
+      "required": false,
+      "scope": "organization",
+      "status": "inferred",
+      "to": "zed-pkg/zed-monorepo",
+      "type": "deploys"
+    },
+    {
+      "confidence": 0.95,
+      "evidence": [
+        {
+          "kind": "repository-name",
+          "value": "zed-pkg.github.io"
+        }
+      ],
+      "from": "zed-pkg/zed-pkg.github.io",
+      "id": "sha256:12193429ebc732ce83253ba6d67098f2a3807dc3176394c05a44daf13594c7f3",
+      "notes": "The conventional *.github.io repository documents the organization profile.",
+      "required": false,
+      "scope": "organization",
+      "status": "inferred",
+      "to": "zed-pkg/.github",
+      "type": "documents"
+    },
+    {
+      "confidence": 0.82,
+      "evidence": [
+        {
+          "family": "zed",
+          "kind": "paired-repository-naming",
+          "source_role": "sync",
+          "target_role": "interfaces"
+        }
+      ],
+      "from": "zed-pkg/zed-sync",
+      "id": "sha256:9ac67cd41c8d3fe4895cf8252f8276f07d951997a0e53ea92ee9443277afbd55",
+      "notes": "Conservative naming inference; confirm or override in the manual declaration file.",
+      "required": false,
+      "scope": "organization",
+      "status": "inferred",
+      "to": "zed-pkg/zed-interfaces",
+      "type": "depends_on"
+    },
+    {
+      "confidence": 0.82,
+      "evidence": [
+        {
+          "family": "zed",
+          "kind": "paired-repository-naming",
+          "source_role": "web-server",
+          "target_role": "interfaces"
+        }
+      ],
+      "from": "zed-pkg/zed-web-server.rs",
+      "id": "sha256:87dcafd4ac131b62e8aad46128bca158c72b152f28eb8145ba4a3f077b8ca986",
+      "notes": "Conservative naming inference; confirm or override in the manual declaration file.",
+      "required": false,
+      "scope": "organization",
+      "status": "inferred",
+      "to": "zed-pkg/zed-interfaces",
+      "type": "depends_on"
+    }
+  ],
+  "repositories": [
+    {
+      "archived": false,
+      "default_branch": "main",
+      "fork": false,
+      "full_name": "zed-pkg/.github",
+      "github_id": "1324048348",
+      "name": ".github",
+      "owner": "zed-pkg",
+      "roles": [
+        "community-health",
+        "governance",
+        "relationship-registry"
+      ],
+      "source": "github-graphql-api",
+      "url": "https://github.com/zed-pkg/.github",
+      "visibility": "public"
+    },
+    {
+      "archived": false,
+      "default_branch": "main",
+      "fork": false,
+      "full_name": "zed-pkg/zed-api-server.rs",
+      "github_id": "1310976909",
+      "name": "zed-api-server.rs",
+      "owner": "zed-pkg",
+      "roles": [
+        "api-server"
+      ],
+      "source": "github-graphql-api",
+      "url": "https://github.com/zed-pkg/zed-api-server.rs",
+      "visibility": "public"
+    },
+    {
+      "archived": false,
+      "default_branch": "main",
+      "fork": false,
+      "full_name": "zed-pkg/zed-cli",
+      "github_id": "1310976839",
+      "name": "zed-cli",
+      "owner": "zed-pkg",
+      "roles": [
+        "repository"
+      ],
+      "source": "github-graphql-api",
+      "url": "https://github.com/zed-pkg/zed-cli",
+      "visibility": "public"
+    },
+    {
+      "archived": false,
+      "default_branch": "main",
+      "fork": false,
+      "full_name": "zed-pkg/zed-clients",
+      "github_id": "1310977032",
+      "name": "zed-clients",
+      "owner": "zed-pkg",
+      "roles": [
+        "clients"
+      ],
+      "source": "github-graphql-api",
+      "url": "https://github.com/zed-pkg/zed-clients",
+      "visibility": "public"
+    },
+    {
+      "archived": false,
+      "default_branch": "main",
+      "fork": false,
+      "full_name": "zed-pkg/zed-docs",
+      "github_id": "1310528362",
+      "name": "zed-docs",
+      "owner": "zed-pkg",
+      "roles": [
+        "repository"
+      ],
+      "source": "github-graphql-api",
+      "url": "https://github.com/zed-pkg/zed-docs",
+      "visibility": "public"
+    },
+    {
+      "archived": false,
+      "default_branch": "main",
+      "fork": false,
+      "full_name": "zed-pkg/zed-e2e",
+      "github_id": "1311180211",
+      "name": "zed-e2e",
+      "owner": "zed-pkg",
+      "roles": [
+        "end-to-end-tests"
+      ],
+      "source": "github-graphql-api",
+      "url": "https://github.com/zed-pkg/zed-e2e",
+      "visibility": "public"
+    },
+    {
+      "archived": false,
+      "default_branch": "main",
+      "fork": false,
+      "full_name": "zed-pkg/zed-infra",
+      "github_id": "1310977131",
+      "name": "zed-infra",
+      "owner": "zed-pkg",
+      "roles": [
+        "infrastructure"
+      ],
+      "source": "github-graphql-api",
+      "url": "https://github.com/zed-pkg/zed-infra",
+      "visibility": "public"
+    },
+    {
+      "archived": false,
+      "default_branch": "main",
+      "fork": false,
+      "full_name": "zed-pkg/zed-intellij",
+      "github_id": "1324293969",
+      "name": "zed-intellij",
+      "owner": "zed-pkg",
+      "roles": [
+        "repository"
+      ],
+      "source": "github-graphql-api",
+      "url": "https://github.com/zed-pkg/zed-intellij",
+      "visibility": "public"
+    },
+    {
+      "archived": false,
+      "default_branch": "main",
+      "fork": false,
+      "full_name": "zed-pkg/zed-interfaces",
+      "github_id": "1310976767",
+      "name": "zed-interfaces",
+      "owner": "zed-pkg",
+      "roles": [
+        "interfaces"
+      ],
+      "source": "github-graphql-api",
+      "url": "https://github.com/zed-pkg/zed-interfaces",
+      "visibility": "public"
+    },
+    {
+      "archived": false,
+      "default_branch": "main",
+      "fork": false,
+      "full_name": "zed-pkg/zed-lock",
+      "github_id": "1324333386",
+      "name": "zed-lock",
+      "owner": "zed-pkg",
+      "roles": [
+        "repository"
+      ],
+      "source": "github-graphql-api",
+      "url": "https://github.com/zed-pkg/zed-lock",
+      "visibility": "public"
+    },
+    {
+      "archived": false,
+      "default_branch": "main",
+      "fork": false,
+      "full_name": "zed-pkg/zed-monorepo",
+      "github_id": "1310978284",
+      "name": "zed-monorepo",
+      "owner": "zed-pkg",
+      "roles": [
+        "monorepo"
+      ],
+      "source": "github-graphql-api",
+      "url": "https://github.com/zed-pkg/zed-monorepo",
+      "visibility": "public"
+    },
+    {
+      "archived": false,
+      "default_branch": "main",
+      "fork": false,
+      "full_name": "zed-pkg/zed-pkg.github.io",
+      "github_id": "1310977287",
+      "name": "zed-pkg.github.io",
+      "owner": "zed-pkg",
+      "roles": [
+        "documentation-site"
+      ],
+      "source": "github-graphql-api",
+      "url": "https://github.com/zed-pkg/zed-pkg.github.io",
+      "visibility": "public"
+    },
+    {
+      "archived": false,
+      "default_branch": "main",
+      "fork": false,
+      "full_name": "zed-pkg/zed-sublimetext",
+      "github_id": "1324294900",
+      "name": "zed-sublimetext",
+      "owner": "zed-pkg",
+      "roles": [
+        "repository"
+      ],
+      "source": "github-graphql-api",
+      "url": "https://github.com/zed-pkg/zed-sublimetext",
+      "visibility": "public"
+    },
+    {
+      "archived": false,
+      "default_branch": "main",
+      "fork": false,
+      "full_name": "zed-pkg/zed-sync",
+      "github_id": "1310977089",
+      "name": "zed-sync",
+      "owner": "zed-pkg",
+      "roles": [
+        "sync"
+      ],
+      "source": "github-graphql-api",
+      "url": "https://github.com/zed-pkg/zed-sync",
+      "visibility": "public"
+    },
+    {
+      "archived": false,
+      "default_branch": "main",
+      "fork": false,
+      "full_name": "zed-pkg/zed-web-server.rs",
+      "github_id": "1310976975",
+      "name": "zed-web-server.rs",
+      "owner": "zed-pkg",
+      "roles": [
+        "web-server"
+      ],
+      "source": "github-graphql-api",
+      "url": "https://github.com/zed-pkg/zed-web-server.rs",
+      "visibility": "public"
+    }
+  ],
   "schema_version": 1,
-  "organization": "zed-pkg",
-  "generated_at": null,
-  "repositories": [],
-  "notes": [
-    "Populate from live GitHub inventory; do not infer unverified dependencies.",
-    "Repository-local manifests remain authoritative for exact dependency versions."
-  ]
+  "unresolved_hints": []
 }
