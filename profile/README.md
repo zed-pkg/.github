@@ -48,7 +48,7 @@ issues, Project fields, or generated artifacts.
 Organization-wide contribution and security guidance lives in this `.github` repository.
 
 <!-- org-project-routing:start -->
-## Planning and delivery routing
+## Planning and delivery
 
 - [GitHub Project: zed-pkg-project](https://github.com/orgs/zed-pkg/projects/1)
 - [Linear planning project](https://linear.app/denman/project/githubcomzed-pkg-5a53230ae6cc)
