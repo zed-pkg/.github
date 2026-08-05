@@ -107,16 +107,17 @@ Active ordered work:
 2. [`zed-pkg/zed-cli#204`](https://github.com/zed-pkg/zed-cli/pull/204)
    updates the exact Cargo revision and generated lock entry to the hardened
    merge commit and adds `zed-pkg/zed-lock = "^0.1.1"` to the Zed package
-   graph. Its carrier proves no non-lock package changes, removes itself, and
-   leaves ordinary source for the full matrix.
+   graph. Its carrier proved no non-lock package changes, removed itself, and
+   left ordinary source for the full matrix.
 3. [`zed-pkg/zed-cli#203`](https://github.com/zed-pkg/zed-cli/pull/203)
    certifies the real compiled global install, frozen restore, lock graph,
    PATH copy, transitive package, and uninstall lifecycle against a hermetic
    `file://` registry.
-4. [`zed-pkg/zed-cli#200`](https://github.com/zed-pkg/zed-cli/pull/200)
-   cleanly rematerializes deterministic, conflict-safe `zed env export mise`
-   on the latest mainline, preserving the typed write boundary and real-CLI
-   reserved-path regressions.
+4. [`zed-pkg/zed-cli#131`](https://github.com/zed-pkg/zed-cli/pull/131)
+   is the active ordinary-source deterministic, conflict-safe
+   `zed env export mise` PR. Its single product commit preserves current
+   task-runtime and standalone-lock modules, includes the typed write boundary,
+   hermetic real-CLI tests, and case-insensitive reserved-path regressions.
 5. The release-candidate branch `release/v0.1.0-rc.3` rebuilds all seven CLI
    target archives and checksums using the corrected Intel macOS runner. It is
    a retained review-artifact lane, not a public `v*` release.
@@ -125,8 +126,9 @@ Superseded work:
 
 - [`zed-pkg/zed-cli#195`](https://github.com/zed-pkg/zed-cli/pull/195) is closed
   because it assumed the now-removed internal lock crate.
-- [`zed-pkg/zed-cli#131`](https://github.com/zed-pkg/zed-cli/pull/131) is closed
-  in favor of the current-main semantic carrier #200.
+- [`zed-pkg/zed-cli#200`](https://github.com/zed-pkg/zed-cli/pull/200) is closed
+  because its helper carrier was replaced by the ordinary single-commit source
+  now reviewed in #131.
 - [`zed-pkg/zed-cli#202`](https://github.com/zed-pkg/zed-cli/pull/202) is closed
   because merged PR #199 already contains its exact one-line runner change.
 
