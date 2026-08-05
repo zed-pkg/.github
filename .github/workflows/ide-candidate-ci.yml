@@ -1,0 +1,93 @@
+name: IDE candidate conformance
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "docs/ide-insight-contract.md"
+      - "docs/ide-parity-matrix.json"
+      - "tools/validate_ide_matrix.py"
+      - "blueprints/zed-eclipse/**"
+      - "blueprints/zed-xcode/**"
+      - "blueprints/zed-visual-studio/**"
+      - "blueprints/zed-qtcreator/**"
+      - "blueprints/zed-vscode/**"
+      - ".github/workflows/ide-candidate-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "docs/ide-insight-contract.md"
+      - "docs/ide-parity-matrix.json"
+      - "tools/validate_ide_matrix.py"
+      - "blueprints/zed-eclipse/**"
+      - "blueprints/zed-xcode/**"
+      - "blueprints/zed-visual-studio/**"
+      - "blueprints/zed-qtcreator/**"
+      - "blueprints/zed-vscode/**"
+      - ".github/workflows/ide-candidate-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  policy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: python tools/validate_ide_matrix.py docs/ide-parity-matrix.json
+
+  eclipse:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - run: mvn --batch-mode --file blueprints/zed-eclipse/pom.xml test
+
+  xcode:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: swift test --package-path blueprints/zed-xcode
+
+  visual-studio:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - run: dotnet test blueprints/zed-visual-studio/Zed.VisualStudio.sln --configuration Release
+
+  qtcreator:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: cmake -S blueprints/zed-qtcreator -B /tmp/zed-qtcreator -DBUILD_TESTING=ON
+      - run: cmake --build /tmp/zed-qtcreator --parallel 2
+      - run: ctest --test-dir /tmp/zed-qtcreator --output-on-failure
+
+  vscode:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Run candidate tests
+        working-directory: blueprints/zed-vscode
+        run: npm test
+      - name: Package VSIX
+        working-directory: blueprints/zed-vscode
+        run: npx --yes @vscode/vsce package --out /tmp/zed-package-insights.vsix
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zed-vscode-candidate-vsix
+          path: /tmp/zed-package-insights.vsix
+          if-no-files-found: error
