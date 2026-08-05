@@ -11,7 +11,7 @@ on:
       - "blueprints/zed-xcode/**"
       - "blueprints/zed-visual-studio/**"
       - "blueprints/zed-qtcreator/**"
-      - "bootstrap/zed-vscode-20260805.bundle.b64.part-*"
+      - "blueprints/zed-vscode/**"
       - ".github/workflows/ide-candidate-ci.yml"
   push:
     branches: [main]
@@ -23,7 +23,7 @@ on:
       - "blueprints/zed-xcode/**"
       - "blueprints/zed-visual-studio/**"
       - "blueprints/zed-qtcreator/**"
-      - "bootstrap/zed-vscode-20260805.bundle.b64.part-*"
+      - "blueprints/zed-vscode/**"
       - ".github/workflows/ide-candidate-ci.yml"
 
 permissions:
@@ -80,26 +80,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Restore verified candidate
-        shell: bash
-        run: |
-          set -euo pipefail
-          cat bootstrap/zed-vscode-20260805.bundle.b64.part-* | base64 --decode > /tmp/zed-vscode.bundle
-          echo "VS Code bundle SHA-256: $(sha256sum /tmp/zed-vscode.bundle | cut -d' ' -f1)"
-          git bundle verify /tmp/zed-vscode.bundle
-          git clone /tmp/zed-vscode.bundle /tmp/zed-vscode
-          git -C /tmp/zed-vscode checkout 7fe04d03d5c16c45381aff23eec4e8c6c441ec31
-      - name: Install, test, and package candidate
-        working-directory: /tmp/zed-vscode
-        shell: bash
-        run: |
-          set -euo pipefail
-          npm ci
-          npm run lint --if-present
-          npm run compile --if-present
-          npm test --if-present
-          npx --yes @vscode/vsce package --out /tmp/zed-package-insights.vsix
-          test -s /tmp/zed-package-insights.vsix
+      - name: Run candidate tests
+        working-directory: blueprints/zed-vscode
+        run: npm test
+      - name: Package VSIX
+        working-directory: blueprints/zed-vscode
+        run: npx --yes @vscode/vsce package --out /tmp/zed-package-insights.vsix
       - uses: actions/upload-artifact@v4
         with:
           name: zed-vscode-candidate-vsix
