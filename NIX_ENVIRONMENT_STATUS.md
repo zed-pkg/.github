@@ -72,11 +72,14 @@ For each applicable repository, add or verify:
 
 ## GitHub Projects v2
 
-The intended organization board remains `zed-pkg-project`, but no Projects v2
-number or node ID has been verified through the currently connected API surface.
-Do not fabricate a project URL or number. Until an authorized `gh project` or
-Projects v2 GraphQL session verifies the board, use:
+[`zed-pkg-project`](https://github.com/orgs/zed-pkg/projects/1) is the verified
+canonical organization board (project 1). The fleet reconciler maintains its
+exact title, active state, durable governance issue, and links to the canonical
+Linear project and organization documentation.
 
-- Linear project `github.com/zed-pkg` for portfolio planning; and
-- GitHub issues, pull requests, commits, checks, and this organization policy
-  repository for execution evidence.
+Use:
+
+- the Linear project [`github.com/zed-pkg`](https://linear.app/denman/project/githubcomzed-pkg-5a53230ae6cc) for portfolio planning and dependencies;
+- `zed-pkg-project` for cross-repository execution visibility; and
+- GitHub issues, pull requests, commits, checks, releases, and this organization
+  policy repository for code and delivery evidence.
