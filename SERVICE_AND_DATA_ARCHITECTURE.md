@@ -1,32 +1,55 @@
 # Service & Data Architecture Plan
 
-Status: **adopted** — 2026-08-07
+Status: **adopted** — 2026-08-07 (revised same day: folded the `docs/WEB_API_DB_ARCHITECTURE.md` draft PRs into this canonical doc, added the database topology section, linked the landed implementation)
+Tracking: **DEN-2785** (shared-defs org segmentation — implemented), **DEN-2189 / DEN-2191 / DEN-2193** (auth data planes), **DEN-2786** (dd→ores naming, deferred)
 Applies to: `fiducia-cloud`, `sonus-auris`, `zed-pkg` (this plan is mirrored in each org's `.github` repo and in the corresponding Linear projects).
 
 ## The plan
 
-1. **The Rust API server handles all database writes** (writes to Postgres). It is the single owner of business logic, validation, and authorization for mutations.
-2. **The web server may read from the database but must never write.** Read-only access is enforced in the database itself (a `SELECT`-only DB user/grant), not by convention.
-3. **The web server talks to the API server over HTTP** with keep-alive (connection reuse). No stateful TCP connections for now — a dedicated TCP connection pool (or gRPC) is a possible later experiment, not part of this plan.
-4. **Shared DB/schema code comes from [`github.com/oresoftware/k8s-libs-and-shared-defs`](https://github.com/oresoftware/k8s-libs-and-shared-defs).** The schema **must be carefully namespaced/segmented by GitHub org/project** — no cross-org tables or shared unqualified names.
-5. **Database migrations use [`github.com/declarative-migrations`](https://github.com/declarative-migrations)** for both Postgres and CockroachDB. The API server owns the schema and the migration set.
-6. **`k8s-libs-and-shared-defs` will be broken apart (segmented/namespaced) by GitHub org**, so each org depends only on its own slice of the shared definitions.
+1. **The Rust API server handles all database writes** (writes to Postgres). It is the sole writer and the single owner of business logic, validation, authorization, audit logging, and cache invalidation for mutations.
+2. **The web server may read from the database but must never write.** Read-only access is enforced in the database itself — the web tier connects with a separate `SELECT`-only DB user/grant — not by convention.
+3. **The web server talks to the API server over HTTP** with keep-alive (connection reuse; no per-request TCP opens). No stateful TCP connections for now — a dedicated TCP connection pool (or gRPC) is a possible later experiment, not part of this plan.
+4. **Shared DB/schema code comes from [`github.com/oresoftware/k8s-libs-and-shared-defs`](https://github.com/oresoftware/k8s-libs-and-shared-defs).** The schema **must be carefully namespaced/segmented by GitHub org/project** — no cross-org tables, name collisions, or shared unqualified names.
+5. **Database migrations use [`github.com/declarative-migrations`](https://github.com/declarative-migrations)** (dpm) for both Postgres and CockroachDB. The API server's repository owns the schema and the migration set; the web server carries no migration tooling.
+6. **`k8s-libs-and-shared-defs` is broken apart (segmented/namespaced) by GitHub org**, so each org depends only on its own slice of the shared definitions. *Implemented and merged via [k8s-libs-and-shared-defs#22](https://github.com/ORESoftware/k8s-libs-and-shared-defs/pull/22) (DEN-2785): per-org sources under [`pg-defs/schema/orgs/<org>/`](https://github.com/ORESoftware/k8s-libs-and-shared-defs/tree/main/pg-defs/schema/orgs) (`*.sql` segments + `schema.json` JSON model + README), the canonical `schema/schema.sql` assembled from them, and a JSON↔SQL parity gate (`node pg-defs/src/parity.mjs --check`) in CI.*
+
+## Database topology
+
+- **Most orgs share one RDS Postgres instance** (`shared-platform`): one database, org separation via Postgres schemas (`fiducia.*`, `t2v.*`, `daedalus.*`, …) or enforced table prefixes. The platform CDC publication (`cdc_pub`, one logical-replication slot per cluster via wal-gateway-rs) pins its member tables to this instance.
+- **Authentication gets dedicated instances.** The `shared-auth` org is the authority for general authentication (it is the shared auth server). Alongside the shared instance there are **two more RDS instances: one for customer auth and one for admin auth** (DEN-2189/DEN-2191). The `shared_auth` schema DDL deploys to both until realm/audience isolation lands in the schema itself (DEN-2193). Operator-facing session stores in product schemas (e.g. `daedalus.web_sessions`) are candidates to migrate to the admin-auth instance.
+- **Supabase-resident contracts stay in Supabase** (RLS-based schemas such as the `communications` policies and `cliptown`, which FK into Supabase `auth.users`).
+- Placement is recorded machine-readably in [`pg-defs/schema/orgs/index.json`](https://github.com/ORESoftware/k8s-libs-and-shared-defs/blob/main/pg-defs/schema/orgs/index.json) (`rdsInstances` + per-org `rdsInstance`), so tooling and reviews share one source of truth.
 
 ## Deployment topology
 
-- Specialized fiducia services — e.g. `fiducia-cloud/fiducia-node.rs`, `fiducia-cloud/fiducia-brain.rs` — run on a **separate k8s cluster**.
+- Specialized fiducia services — e.g. `fiducia-cloud/fiducia-node.rs`, `fiducia-cloud/fiducia-brain.rs` — run on a **separate k8s cluster**, not on `k8s-cluster`.
 - All traditional API servers and web servers run on [`github.com/ORESoftware/k8s-cluster`](https://github.com/ORESoftware/k8s-cluster).
 
 ## Rationale
 
+The through-line: **the schema is a private implementation detail of exactly one service (the API server), and the API is the contract everything else negotiates with.**
+
 - **One service owns a schema.** The moment two deployables issue writes against the same tables, every migration becomes a coordinated release, and the API's invariants (validation, authorization, audit logging, cache invalidation) can be silently bypassed. The Rust API server is the sole write path and the sole owner of migrations.
-- **Reads are permitted from the web tier, but hardened at the boundary.** Reads need authorization too (tenant scoping, field redaction) — most data leaks are read leaks. Hence: a separate `SELECT`-only DB user, and the shared lib should export **named query functions** (e.g. `get_published_posts_for_tenant(tenant_id)`) rather than exposing a raw ORM session/query builder.
+- **Reads are permitted from the web tier, but hardened at the boundary.** Reads need authorization too (tenant scoping, row-level filtering, field redaction) — most data leaks are read leaks. The web tier's read access is a deliberate, bounded exception governed by the guardrails below, not a license to embed business logic in web-tier queries.
+- **Security.** The web server sits closer to the public internet. It must never hold write-capable database credentials; if it is compromised, the blast radius is read-only.
 - **Shared-lib coupling is build-time coupling.** Sharing DB code between API and web trades runtime drift for lockfile-invisible version coupling. Segmenting `k8s-libs-and-shared-defs` by org keeps the blast radius of a schema change inside one org; strict schema namespacing keeps one org's migration from touching another org's tables.
-- **HTTP keep-alive first, fancy transports later.** Reusing connections removes most per-request latency; a stateful TCP pool / gRPC adds operational complexity we don't need yet. If we revisit it: explicit connect/read timeouts shorter than the upstream request timeout, retries only on idempotent methods with jittered backoff, and a bulkhead/circuit breaker so a slow API can't exhaust the web tier's workers.
-- **Migration discipline.** Migrations run as a discrete deploy step (never on app boot with N replicas racing). The migration user has DDL rights; runtime users (API read-write, web read-only) do not. Destructive changes follow expand → backfill → contract across separate releases.
+- **HTTP keep-alive first, fancy transports later.** Reusing connections removes most per-request latency; a stateful TCP pool / gRPC adds operational complexity we don't need yet, and is revisited only with evidence that the HTTP hop is the bottleneck.
+- **Migration discipline.** Migrations run as a discrete deploy step (never on app boot with N replicas racing). Destructive changes follow expand → backfill → contract across separate releases.
 - **Connection-pool math.** The web tier scales wider than the API tier; web replicas × pool size must be budgeted against `max_connections` (prefer pointing web reads at a replica, and plan for read-after-write staleness).
 
-## Non-goals (for now)
+## Guardrails
 
-- No stateful TCP connection pool or gRPC between web and API (revisit later).
+- **Split DB credentials three ways.** The dpm migration user has DDL rights; the API runtime user has DML but no DDL; the web-tier user is `SELECT`-only. Enforced in Postgres/CockroachDB grants, not in application code.
+- **Web-tier reads go through named query functions** (a shared repository layer exporting e.g. `get_published_items_for_tenant(tenant_id)`), never a raw ORM session or query builder handed to the web tier. The named functions are the read contract.
+- **Do not run migrations on app boot.** With N replicas rolling out you get N concurrent migration attempts. Migrations run as a discrete pre-deploy step (CI stage, init container, or job) via declarative-migrations, with human review of the generated SQL.
+- **Expand/contract for destructive schema changes.** Add new column → deploy code writing both → backfill → deploy code reading new → drop old column in a later release. Each step independently revertible.
+- **Web→API HTTP hygiene:** explicit connect/read timeouts shorter than the upstream request timeout; retries only on idempotent methods with jittered backoff; traffic stays on the private cluster network, never back out through the public load balancer.
+- **Read-after-write staleness:** if web-tier reads are ever pointed at a replica, plan for sticky reads or a short primary-read window after writes.
+- **Shared-defs namespacing:** every schema/definition consumed from `k8s-libs-and-shared-defs` must live in that repo's per-org segmentation (`pg-defs/schema/orgs/<org>/`) so org-level changes cannot collide or bleed across orgs; the CI parity and assembly gates enforce it.
+
+## Non-goals / future work (explicitly deferred)
+
+- No stateful TCP connection pool or gRPC between web and API (revisit only if keep-alive HTTP proves insufficient).
 - No web-tier writes of any kind, including "just this one table" — web-owned state (sessions, view cache) belongs in a separate web-owned store/schema if it's ever needed.
+- Caching layer in front of API reads as an alternative to widening direct web-tier DB access.
+- Renaming legacy `dd`-prefixed generated packages/paths (`dd-pg-defs-sea-orm`, `dd.pgdefs.*`, …) — one coordinated wave under DEN-2786 phase 4, deliberately not mixed into the segmentation work.
