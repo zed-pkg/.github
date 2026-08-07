@@ -49,6 +49,7 @@ Organization-wide contribution and security guidance lives in this `.github` rep
 
 <!-- org-project-routing:start -->
 ## Planning and delivery
+## Planning and delivery routing
 
 - [GitHub Project: zed-pkg-project](https://github.com/orgs/zed-pkg/projects/1)
 - [Linear planning project](https://linear.app/denman/project/githubcomzed-pkg-5a53230ae6cc)
