@@ -53,3 +53,18 @@ The through-line: **the schema is a private implementation detail of exactly one
 - No web-tier writes of any kind, including "just this one table" — web-owned state (sessions, view cache) belongs in a separate web-owned store/schema if it's ever needed.
 - Caching layer in front of API reads as an alternative to widening direct web-tier DB access.
 - Renaming legacy `dd`-prefixed generated packages/paths (`dd-pg-defs-sea-orm`, `dd.pgdefs.*`, …) — one coordinated wave under DEN-2786 phase 4, deliberately not mixed into the segmentation work.
+
+## Shared ORM layer — `*-orm-core` (SeaORM)
+
+Adopted 2026-08-07, later the same day as the baseline plan. This section records the crate-placement decision; it refines (does not reverse) the shared-boundary work tracked in DEN-2787 / DEN-2788 / DEN-2789.
+
+Because both the web server and the API server read from the database, ORM code is shared through one dedicated per-organization SeaORM crate repository, rather than duplicated per service or embedded in a general-purpose `*-lib` repo:
+
+- **Repos:** [`fiducia-cloud/fiducia-orm-core`](https://github.com/fiducia-cloud/fiducia-orm-core), [`sonus-auris/sonus-auris-orm-core`](https://github.com/sonus-auris/sonus-auris-orm-core), [`zed-pkg/zed-orm-core`](https://github.com/zed-pkg/zed-orm-core) (scaffold PR #1 in each).
+- **The Rust ORM is always SeaORM** — already the fleet standard per `pg-defs/rust-server-consumers.json` (`ordinaryPersistence: "SeaORM generated entities and repositories"`; no plain sqlx/tokio-postgres).
+- **Entities come from the generated SeaORM adapter in `k8s-libs-and-shared-defs`** (`pg-defs/generated/rust/sea-orm`, currently packaged as `dd-pg-defs-sea-orm`; the `dd` → owner-root rename is deliberately deferred to DEN-2786 phase 4). Each `*-orm-core` crate consumes only its own org's slice (`pg-defs/schema/orgs/<org>/`) and never defines an independent schema. Shared defs are imported as zed packages (`.zpkg.toml` dependency on `oresoftware/k8s-libs-and-shared-defs`), rev-pinned.
+- **Role-aware connect:** API servers use the ReadWrite connector (full entity surface, `read-write` cargo feature); web servers use the ReadOnly connector (`default_transaction_read_only=on` as defense in depth) and get only named, policy-aware query functions — no raw `DatabaseConnection`, query builder, or entity-manager export to web request handlers — on top of the web tier's `SELECT`-only database role.
+- **No migrations in the crate.** The owning API server keeps sole migration authority via declarative-migrations (`dpm`); `*-orm-core` is entity/query code only.
+- **Versioning:** each `*-orm-core` release pins the exact shared-defs revision it was generated against; major bumps are schema events and participate in the expand/contract compatibility window.
+
+**Reconciliation with in-flight PRs (DEN-2787/2788/2789):** the role-aware connector, org schema namespacing, and named-query-function patterns from the `*-lib` orm-crate PRs are the adopted content — they relocate to (or are re-exported from) the org's `*-orm-core` repo. The api-server/web-server consumer wiring in those PR sets stays as designed, with the import retargeted to `<org>/<org>-orm-core` via zed-pkg.
