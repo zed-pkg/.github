@@ -4,6 +4,11 @@ This public `.github` repository contains organization-wide community health fil
 
 Repository-local policy wins when it is stricter or more specific. Existing project history must be preserved during consolidation and conflict resolution.
 
+## Canonical service/data architecture
+
+- [`*-lib-core` data plane and Rust web/API boundary](LIB_CORE_AND_SERVICE_BOUNDARIES.md)
+- [Full service and data architecture](SERVICE_AND_DATA_ARCHITECTURE.md)
+
 <!-- ore-org-baseline:begin -->
 ## Account-wide defaults
 
