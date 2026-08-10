@@ -3,3 +3,5 @@ temp
 tmp/worktrees
 temp/worktrees
 /blueprints/zed-eclipse/target/
+__pycache__/
+*.py[cod]
