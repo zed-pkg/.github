@@ -1,6 +1,6 @@
 # zed-pkg project tracking
 
-Last verified: 2026-08-05
+Last verified: 2026-08-05 (GitHub Projects v2 section: 2026-08-08)
 
 This document records only identifiers read from canonical systems. Do not
 infer a project number, channel name, release state, or integration state from
@@ -46,37 +46,53 @@ When updating Linear from GitHub work:
 
 ## GitHub Projects v2
 
-The intended organization board title is `zed-pkg-project`.
+The organization board is verified as of 2026-08-08, via an authorized
+`project`-scoped GraphQL session (`organization.projectsV2`). Verification is
+tracked in [`zed-pkg/.github#13`](https://github.com/zed-pkg/.github/issues/13)
+and Linear `DEN-2875`.
 
-No GitHub Projects v2 node ID or project number was verified during this update.
-The connected GitHub API surface exposed repository, pull-request, issue, and
-Actions operations but not Projects v2 GraphQL mutations. Requests to the
-legacy organization-project endpoint and an assumed `/projects/1` URL returned
-`404`, so this repository must not claim that project number 1 exists.
+- Title: `zed-pkg-project`
+- Owner: organization `zed-pkg`
+- Project number: `1`
+- Node ID: `PVT_kwDOEmIPx84BfYhg`
+- URL: <https://github.com/orgs/zed-pkg/projects/1>
+- Visibility/state: private, open
 
-Creation or verification is tracked in
-[`zed-pkg/.github#13`](https://github.com/zed-pkg/.github/issues/13).
+Why the 2026-08-05 probe saw `404`: it queried the legacy (classic)
+organization-projects REST endpoint, and classic projects do not exist for this
+organization. Projects v2 is reachable only through GraphQL (`projectsV2`) or
+`gh project`; do not re-probe the legacy endpoint as evidence of absence.
 
-Until the board is verified or created through an authorized GraphQL or
-`gh project` session:
+Field schema (verified 2026-08-08, after configuration per `#13`):
 
-- use the Linear project above as the portfolio roadmap;
-- use GitHub issues and pull requests as the repository execution ledger;
-- do not fabricate a project URL in issue templates, automation, or reports;
-- once created, record the verified project number, node ID, URL, owner, and
-  field schema here in a reviewed PR.
-
-Recommended Projects v2 fields:
-
-| Field | Purpose |
+| Field | Type / options |
 | --- | --- |
-| `Status` | Backlog, Ready, In progress, In review, Blocked, Done |
-| `Repository` | Owning `zed-pkg/*` repository |
-| `Linear` | DEN issue identifier or project link |
-| `Package layer` | Interfaces, clients, library, CLI, server, test, infra |
-| `Release gate` | Source review, CI, artifact, publish, certification |
-| `Target branch` | `main`, `dev`, or another explicitly reviewed branch |
-| `Blocked by` | Upstream PR, package, credential, or runner dependency |
+| `Status` | single-select: Backlog, Ready, In progress, In review, Blocked, Done |
+| `Linear` | text — DEN issue identifier(s) or Linear project link |
+| `Package layer` | single-select: Interfaces, Clients, Library, CLI, Server, Test, Infra |
+| `Release gate` | single-select: Source review, CI, Artifact, Publish, Certification |
+| `Target branch` | text — `main`, or another explicitly reviewed branch |
+| `Blocked by` | text — upstream PR, package, credential, or runner dependency |
+| built-ins | Title, Assignees, Labels, Linked pull requests, Milestone, Repository, Reviewers, Parent issue, Sub-issues progress, Created/Updated/Closed |
+
+Items seeded 2026-08-08 (statuses at seeding time):
+
+- [`zed-pkg/zed-interfaces#45`](https://github.com/zed-pkg/zed-interfaces/issues/45)
+  — registry protocol v1 RFC anchor; Linear `DEN-2862`/`DEN-2854`; Backlog.
+- [`zed-pkg/zed-cli#131`](https://github.com/zed-pkg/zed-cli/pull/131)
+  — deterministic mise export; Linear `DEN-1462`; In review.
+- [`zed-pkg/zed-cli#203`](https://github.com/zed-pkg/zed-cli/pull/203)
+  — clean-room certification; merged; Done.
+- [`zed-pkg/zed-cli#204`](https://github.com/zed-pkg/zed-cli/pull/204)
+  — hardened lock pin; **closed without merge as of 2026-08-08**, so the
+  "Active ordered work" list below is stale on this point and needs review by
+  the merge-train owner.
+- Draft: `zed-lock v0.1.1 one-shot publisher (release/v0.1.1)`; Linear
+  `DEN-2076`/`DEN-2503`; In progress.
+
+Pre-existing board items (drafts for `DEN-1462`, `DEN-1468`, `DEN-1420`, and
+issue `#21`) were left untouched; the `DEN-1462` draft overlaps PR `#131` and
+should be consolidated by the owning thread.
 
 ## Current CLI and package merge train
 

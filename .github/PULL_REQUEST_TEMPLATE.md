@@ -1,33 +1,17 @@
-## Summary
-
-Describe the problem, the chosen design, and the user or operational outcome.
-
-## Verification
-
-List commands, tests, checks, and manual validation actually performed against this exact head.
-
-## Compatibility and risk
-
-Explain API/data/configuration changes, security implications, rollout, migration, and rollback.
-
-## Conflict reconciliation
-
-When conflicts were present, summarize both sides' intent and how the final implementation preserves or deliberately supersedes each part.
-
-- [ ] No secrets or private data are included.
-- [ ] Documentation and tests reflect the final contract.
-- [ ] The exact proposed head was verified.
-
 <!-- ore-org-baseline:begin -->
 ## Summary
 
-Describe the behavior and intent, not only the files changed.
+Describe the problem, the chosen design, and the user or operational outcome—not only the files changed.
 
 ## Planning and dependencies
 
 - Linear project or issue: [github.com/zed-pkg](https://linear.app/denman/project/githubcomzed-pkg-5a53230ae6cc)
 - Related GitHub issues or pull requests:
 - Related repositories or external contracts:
+
+## Architecture and compatibility
+
+Describe affected repositories, APIs, schemas, generated artifacts, migrations, infrastructure, deployment behavior, and external dependencies.
 
 ## Risk, security, migration, and rollback
 
@@ -36,11 +20,13 @@ Describe the behavior and intent, not only the files changed.
 - Migration or compatibility considerations:
 - Rollback or recovery approach:
 
-## Validation
+## Verification
 
-List exact commands, environments, and results. Include unit, integration, contract, build, and end-to-end evidence as applicable.
+List exact commands, environments, and results performed against this exact head. Include unit, integration, contract, build, security, and end-to-end evidence as applicable.
 
 ## Conflict-resolution record
+
+When conflicts were present, summarize both sides' intent and how the final implementation preserves or deliberately supersedes each part.
 
 - [ ] Remote state was fetched before editing and before pushing.
 - [ ] Concurrent work was preserved; no destructive operation or history rewrite was used.
@@ -51,6 +37,7 @@ List exact commands, environments, and results. Include unit, integration, contr
 ## Final checklist
 
 - [ ] Focused commits and reviewable diff
+- [ ] The exact proposed head was verified
 - [ ] Documentation and generated artifacts updated from authoritative sources
 - [ ] External Actions pinned to full commit SHAs
 - [ ] Explicit least-privilege workflow permissions and timeouts
