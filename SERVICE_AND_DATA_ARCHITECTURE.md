@@ -1,116 +1,368 @@
-# Service & Data Architecture Plan
+# Rust Web Server vs API Server Architecture Plan
 
-Status: **adopted** — 2026-08-07 (revised same day: folded the `docs/WEB_API_DB_ARCHITECTURE.md` draft PRs into this canonical doc, added the database topology section, linked the landed implementation)
-Tracking: **DEN-2785** (shared-defs org segmentation — implemented), **DEN-2189 / DEN-2191 / DEN-2193** (auth data planes), **DEN-2786** (dd→ores naming, deferred)
-Applies to: `fiducia-cloud`, `sonus-auris`, `zed-pkg` (this plan is mirrored in each org's `.github` repo and in the corresponding Linear projects).
+Status: **adopted; audited and revised 2026-08-08**  
+Applies to: `fiducia-cloud`, `sonus-auris`, and `zed-pkg`; this document is mirrored in each organization’s `.github` repository and corresponding Linear project.  
+Tracking: **DEN-3033** (cross-org conformance), **DEN-3043** (fleet linter), **DEN-2787 / DEN-2788 / DEN-2789** (organization rollouts), **DEN-2785** (shared-definitions segmentation), **DEN-2786** (ownership-aware naming).
 
-## The plan
+## Executive decision
 
-1. **The Rust API server handles all database writes** (writes to Postgres). It is the sole writer and the single owner of business logic, validation, authorization, audit logging, and cache invalidation for mutations.
-2. **The web server may read from the database but must never write.** Read-only access is enforced in the database itself — the web tier connects with a separate `SELECT`-only DB user/grant — not by convention.
-3. **The web server talks to the API server over HTTP** with keep-alive — ordinary bounded HTTP/1.1 or HTTP/2 connection reuse, which does use pooled persistent TCP connections. What is excluded is a *custom long-lived application protocol or session* (bespoke framing, sticky session state, streaming RPC); gRPC or a bespoke transport is a possible later experiment, gated on measured evidence. See §External review hardening item 7.
-4. **Shared DB/schema code comes from [`github.com/oresoftware/k8s-libs-and-shared-defs`](https://github.com/oresoftware/k8s-libs-and-shared-defs).** The schema **must be carefully namespaced/segmented by GitHub org/project** — no cross-org tables, name collisions, or shared unqualified names.
-5. **Database migrations use [`github.com/declarative-migrations`](https://github.com/declarative-migrations)** (dpm) for both Postgres and CockroachDB. The API server's repository owns the schema and the migration set; the web server carries no migration tooling.
-6. **`k8s-libs-and-shared-defs` is broken apart (segmented/namespaced) by GitHub org**, so each org depends only on its own slice of the shared definitions. *Implemented and merged via [k8s-libs-and-shared-defs#22](https://github.com/ORESoftware/k8s-libs-and-shared-defs/pull/22) (DEN-2785): per-org sources under [`pg-defs/schema/orgs/<org>/`](https://github.com/ORESoftware/k8s-libs-and-shared-defs/tree/main/pg-defs/schema/orgs) (`*.sql` segments + `schema.json` JSON model + README), the canonical `schema/schema.sql` assembled from them, and a JSON↔SQL parity gate (`node pg-defs/src/parity.mjs --check`) in CI.*
+The boundary is defined by **capabilities and credentials**, not by a repository name, binary name, programming language, or whether the process returns HTML or JSON.
 
-## Database topology
+1. A **product API server** owns product-domain mutations, mutation authorization, invariants, audit behavior, cache invalidation, and the domain schema’s compatibility window.
+2. A **browser web server** owns presentation, browser-session handling, CSRF/origin enforcement, HTML/HTMX responses, and browser-specific state. It sends product-domain mutations through the API.
+3. A web server may write only to a **separate web-owned state store or schema**—for example encrypted browser sessions, PKCE state, CSRF state, or a disposable render cache. This does not grant write access to product-domain tables.
+4. API-mediated reads are the fleet default. A direct web-to-database read is an explicit optimization for a bounded, stable read projection, and requires a separate database-enforced read-only identity plus the controls in this plan.
+5. A process that renders browser UI and performs product-domain writes is a **combined BFF/API**, not a read-only web server. Combined services are transitional exceptions that must be named accurately, privilege-separated internally, and tracked toward either an intentional modular monolith or a dedicated API split.
+6. Traditional web/API services normally run as separate Rust deployables through [`ORESoftware/k8s-cluster`](https://github.com/ORESoftware/k8s-cluster). Specialized Fiducia coordination services such as `fiducia-node.rs` and `fiducia-brain.rs` remain on the separate Fiducia cluster.
 
-- **Most orgs share one RDS Postgres instance** (`shared-platform`): one database, org separation via Postgres schemas (`fiducia.*`, `t2v.*`, `daedalus.*`, …) or enforced table prefixes. The platform CDC publication (`cdc_pub`, one logical-replication slot per cluster via wal-gateway-rs) pins its member tables to this instance.
-- **Authentication gets dedicated instances.** The `shared-auth` org is the authority for general authentication (it is the shared auth server). Alongside the shared instance there are **two more RDS instances: one for customer auth and one for admin auth** (DEN-2189/DEN-2191). The `shared_auth` schema DDL deploys to both until realm/audience isolation lands in the schema itself (DEN-2193). Operator-facing session stores in product schemas (e.g. `daedalus.web_sessions`) are candidates to migrate to the admin-auth instance.
-- **Supabase-resident contracts stay in Supabase** (RLS-based schemas such as the `communications` policies and `cliptown`, which FK into Supabase `auth.users`).
-- Placement is recorded machine-readably in [`pg-defs/schema/orgs/index.json`](https://github.com/ORESoftware/k8s-libs-and-shared-defs/blob/main/pg-defs/schema/orgs/index.json) (`rdsInstances` + per-org `rdsInstance`), so tooling and reviews share one source of truth.
+The preferred implementation language is Rust, but the ownership rules apply equally to any implementation.
+
+## Role taxonomy
+
+| Runtime role | Browser HTML / fragments | Product-domain reads | Product-domain writes | Web-owned state writes | DDL | Typical public surface |
+| --- | --- | --- | --- | --- | --- | --- |
+| Browser web / presentation server | Yes | Through API by default; bounded direct projection by exception | No | Yes, only in separately owned state | Only through a separate web-state migration job | `app.<domain>` |
+| Product API server | Usually no, except narrow callbacks/download responses | Yes | Yes; sole request-serving writer | No, unless the API explicitly owns that state | No at ordinary runtime | `api.<domain>` |
+| Combined BFF/API | Yes | Yes | Only for the explicitly declared domain it owns | Yes, separately identified | No at ordinary runtime | Transitional; must be documented |
+| Domain worker / consumer | No | Yes | Yes when delegated by the same domain owner | No | No | Private cluster service |
+| Migration job | No | Verification reads only | Backfills declared by the migration | Only for its owned schema | Yes, narrowly scoped and serialized | No public ingress |
+| Specialized coordination service | Service-specific | Service-specific | Only its owned coordination domain | No browser state | Separate release process | Separate Fiducia cluster |
+
+A route prefix such as `/api/*` inside a web repository does not make that process the product API. Same-origin JSON or HTMX endpoints in a web server are **presentation adapters/BFF routes** unless they own the product domain under an explicit exception.
+
+## Default repository and deployment shape
+
+When both browser and API responsibilities exist, the default is:
+
+```text
+<product>-interfaces
+<product>-clients
+<product>-orm-core
+<product>-api-server.rs
+<product>-web-server.rs
+<product>-e2e
+<product>-infra
+```
+
+The API and web servers have separate:
+
+- repositories and release identities;
+- Kubernetes Deployments, Services, ServiceAccounts, and NetworkPolicies;
+- secrets and database principals;
+- health/readiness semantics and autoscaling budgets;
+- public origins—normally `api.<domain>` and `app.<domain>`;
+- telemetry service names and dashboards.
+
+`www.<domain>` remains marketing/static unless an architecture decision explicitly assigns another responsibility.
+
+A combined single Rust binary is permitted only by an ADR that records why separate deployables are not currently justified, the exact domain it owns, its distinct database pools/credentials, the future split trigger, and an expiry or review date. “The repository is called web/backend” is not an ADR.
+
+## Rust implementation baseline
+
+### Common process structure
+
+Rust servers should keep `main.rs` thin: initialize typed configuration and telemetry, build application state/router, install graceful shutdown, and call `serve`. Business logic does not accumulate in `main.rs`.
+
+A conventional layout is:
+
+```text
+src/
+  main.rs
+  server.rs or app.rs
+  config.rs
+  authn.rs
+  authz.rs
+  routes/
+  domain/ or application/
+  persistence/
+  clients/
+  telemetry.rs
+  health.rs
+```
+
+Normative rules:
+
+- Axum is the default HTTP framework for these servers.
+- Browser servers normally use Maud plus HTMX when server-rendered HTML is appropriate.
+- SeaORM is the direct Rust persistence layer; do not add a parallel bare SQLx/tokio-postgres application layer.
+- Raw SeaORM connections, entity managers, and unrestricted query builders stay private to the persistence/ORM boundary.
+- Request/response, event, error, route, and authorization contracts come from `*-interfaces` and generated `*-clients`; do not duplicate ad hoc structs between web and API repositories.
+- `*-lib` remains domain/pure where practical. Database-generated code lives in the dedicated `*-orm-core` repository and is not re-exported through a general library as a compatibility shortcut.
+- A Cargo feature such as `read-write` expresses intent but is **not** a security boundary. Database grants and separate runtime credentials are authoritative; CI must also prove the web target cannot obtain the write surface.
+- Configuration is typed and auditable, normally through `flags-2-env`; credentials remain environment/secret-store only and never appear in flags, examples, logs, or generated manifests.
+
+### Product API server
+
+The API server:
+
+- exposes versioned JSON contracts, normally `/v1/*` or `/api/v1/*`;
+- owns mutation validation, product authorization, tenant checks, idempotency, audit events, and transactional boundaries;
+- is the only request-serving process with product-schema DML rights;
+- owns object-store write credentials, provider service-role credentials, webhook verification secrets, and internal-worker credentials when those capabilities belong to the product domain;
+- returns typed errors and stable machine-readable error codes;
+- publishes human- and machine-readable HTTP route documentation;
+- uses generated clients so browser, desktop, mobile, CLI, and other services consume the same contract;
+- does not run production DDL during ordinary replica startup.
+
+Narrow HTML responses are acceptable for OAuth callbacks, signed downloads, or compatibility pages, but new signed-in product UI belongs in the web server.
+
+### Browser web server
+
+The web server:
+
+- renders HTML and HTMX fragments and owns browser navigation;
+- may expose same-origin form/BFF endpoints, but product mutations call the API using a generated client;
+- owns browser cookies, CSRF/origin validation, PKCE handoff state, and encrypted browser-session state;
+- never receives API writer credentials, the domain migrator credential, a Supabase/service-role secret, or broad object-store credentials;
+- does not mint product credentials or bypass the API’s authorization rules;
+- propagates the signed-in actor using an audience-bound user token, token exchange, or an explicit internal service identity plus actor context;
+- sends authenticated/private responses with suitable `Cache-Control` and prevents shared-cache leakage;
+- treats rendering helpers as pure presentation code—rendering modules do not issue ad hoc SQL.
+
+Browser-facing WebSocket or SSE endpoints are allowed for live UI updates. They must transport bounded notifications or presentation data and do not change the internal web-to-API transport rule below.
+
+## Database ownership
+
+### Product-domain schema
+
+One domain owner controls each product schema. The API repository/domain owns:
+
+- schema compatibility requirements;
+- product-domain migrations;
+- generated entity provenance;
+- product read/write operations;
+- authorization-aware read models;
+- the expand/backfill/contract sequence for destructive changes.
+
+Runtime roles should be separately provisioned from a centrally registered namespace:
+
+```text
+<db_namespace>__api_rw
+<db_namespace>__web_ro
+<db_namespace>__web_state_rw
+<db_namespace>__migrator
+```
+
+The exact namespace is recorded in `k8s-libs-and-shared-defs`; repositories must not invent independent truncation or alias rules.
+
+The API runtime role gets only required DML and no broad DDL. The web read role gets schema `USAGE` plus an explicit `SELECT` allowlist. The migrator gets project-scoped DDL only during the release job. Role switching between these principals is denied.
+
+### Web-owned state
+
+A browser server may own a separate schema/store for state that is genuinely presentation-tier state:
+
+- encrypted browser sessions;
+- PKCE and one-time login state;
+- CSRF nonces;
+- browser preference cache or render cache;
+- short-lived UI coordination state.
+
+That state must have a distinct owner, credential, migration set, and retention policy. It must not become a shadow product database, duplicate credential authority, or cross-schema shortcut.
+
+Web-owned state:
+
+- must not contain product records merely to avoid an API call;
+- must not use foreign keys into the product-domain schema;
+- must not share the API writer or product migrator credential;
+- may be migrated only by a separate one-shot web-state migration job;
+- may not auto-migrate at production process startup.
+
+This corrects the earlier overbroad phrase “the web server carries no migration tooling”: the web server carries no **product-domain** migration authority. Its repository may own migration definitions for its isolated browser-state schema, executed separately from normal replicas.
+
+### Direct web reads
+
+API-mediated reads are preferred because they centralize authorization, consistency, caching, and schema abstraction. A direct database read from the web tier is allowed only when its latency/availability value is documented and every condition below holds:
+
+1. A dedicated read-only DSN is used. It is never the API writer, migrator, or web-state writer URL.
+2. The database principal has an explicit `SELECT` allowlist, no DML/DDL/ownership/role-switch privileges, and a pinned `search_path`.
+3. Every connection also sets and verifies `default_transaction_read_only=on`.
+4. `statement_timeout`, `lock_timeout`, `idle_in_transaction_session_timeout`, connection counts, and acquisition timeouts are bounded.
+5. The canonical `*-orm-core` exposes an opaque read context and named, policy-aware operations—not a raw connection or query builder.
+6. Every operation requires explicit actor/tenant authorization context, bounds result size, and redacts fields.
+7. Cross-tenant and write attempts are covered by negative tests; RLS is used where practical as a second boundary.
+8. Failure to establish the read-only property fails closed or degrades the affected view to an unavailable/offline state. It never falls back to a writer credential.
+9. Read-after-write behavior is defined. Immediately after an API mutation, use the mutation response, an API primary read, or an explicit consistency token rather than assuming a replica is current.
+
+Direct reads are a read-model optimization, not permission to move business logic into the presentation tier.
+
+## Shared ORM layer
+
+Each organization uses one dedicated SeaORM repository:
+
+- [`fiducia-cloud/fiducia-orm-core`](https://github.com/fiducia-cloud/fiducia-orm-core)
+- [`sonus-auris/sonus-auris-orm-core`](https://github.com/sonus-auris/sonus-auris-orm-core)
+- [`zed-pkg/zed-orm-core`](https://github.com/zed-pkg/zed-orm-core)
+
+The ORM package:
+
+- consumes only the organization/project slice from [`ORESoftware/k8s-libs-and-shared-defs`](https://github.com/ORESoftware/k8s-libs-and-shared-defs);
+- records the exact shared-definitions commit plus schema-input and generated-output digests;
+- fails CI when generated entities drift from the pinned input;
+- exposes opaque read contexts and named reads by default;
+- exposes the write context/operations only to explicit API/worker consumers;
+- contains no production migration runner;
+- tests PostgreSQL and CockroachDB separately when dual-engine support is claimed.
+
+Generated code provenance, not a moving branch or copied entity directory, is the source of truth.
+
+## Web-to-API transport
+
+Internal web-to-API communication uses ordinary request/response HTTP over the private cluster network.
+
+- Use one process-wide HTTP client, normally a shared `reqwest::Client`, with bounded HTTP/1.1 keep-alive or HTTP/2 connection reuse.
+- HTTP keep-alive already uses pooled persistent TCP connections. The deferred item is a custom long-lived application protocol/session, bespoke framing, connection-affine state, or streaming RPC between web and API.
+- Configure explicit connect, pool-idle, request, read, and total deadlines; the upstream deadline must be shorter than the browser request deadline.
+- Retry only proven-idempotent operations. Mutations require an idempotency key/contract before any automatic retry.
+- Bound concurrency and queueing so an unhealthy API cannot exhaust web workers or sockets.
+- Propagate request IDs, trace context, authenticated actor context, and an explicit audience.
+- Use Kubernetes Service discovery and NetworkPolicies; do not route private service calls back through the public Cloudflare/load-balancer path.
+- Circuit breaking, load shedding, and stale-cache fallback are allowed when their authorization and consistency behavior is documented.
+
+A future gRPC or custom transport proposal must present measured latency/throughput evidence, operational and failure-isolation analysis, observability, rollout/rollback, and generated-client compatibility. Protocol novelty alone is not justification.
+
+## Authentication and authorization
+
+Shared Auth is the canonical identity, session-assurance, MFA, passkey, and token-exchange plane. Product services retain product authorization.
+
+### Web responsibilities
+
+- establish the browser session and enforce exact cookie, host, origin, and CSRF rules;
+- keep bearer/refresh tokens out of browser JavaScript when server-mediated sessions are used;
+- bind session/token exchange to the correct customer/admin audience;
+- forward or exchange identity without broadening privileges;
+- avoid duplicate identity stores or service-role keys.
+
+### API responsibilities
+
+- verify token issuer, audience, expiry, assurance, tenant, and actor;
+- enforce product roles, ownership, field-level access, and mutation policy;
+- treat service-to-service identity and end-user actor identity as distinct inputs;
+- never rely on the web server’s UI checks as authorization.
+
+Customer and admin planes use separate cookies, audiences, credentials, and databases where the product architecture calls for that separation.
+
+## Migrations and release discipline
+
+[`declarative-migrations`](https://github.com/declarative-migrations) / `dpm` is the production migration mechanism for PostgreSQL and CockroachDB.
+
+- The owning API/domain repository owns the product migration source.
+- A separate, serialized pre-deploy Job applies it under the migrator identity and an advisory/fencing lock.
+- Ordinary API, web, and worker replicas do not receive DDL privileges and do not migrate on boot.
+- A migration failure blocks rollout and records the source revision, bundle digest, target, starting/ending catalog version, result, and duration.
+- Destructive changes use **expand → mixed-version/backfill → contract**, with each phase independently deployable and revertible.
+- ORM/code-first tools may help author SQL, but reviewed committed declarative SQL/catalog state is authoritative.
+- `AUTO_MIGRATE`, `db push`, `synchronize: true`, `EnsureCreated`, or equivalent startup mutation is forbidden in durable environments.
+- A clearly labeled, single-replica, disposable local/CI stack may opt into boot migration; the default remains off and the exception may not appear in Kubernetes production manifests.
+- Web-owned state follows the same release-job rule, using its own migration identity and affecting only its own schema.
+- PostgreSQL/CockroachDB compatibility is tested per engine, including constraints, indexes, isolation, DDL behavior, transactions, and retryable serialization failures.
+
+## Object storage, queues, and workers
+
+The API/domain owner or its delegated worker owns product object-store and queue mutations.
+
+- Browser servers do not receive R2/S3 secret keys. They obtain bounded presigned URLs or call the API.
+- Background workers that mutate product data use an explicitly delegated API-domain identity and the same invariants/idempotency contracts.
+- WebSocket/SSE refresh workers do not become an alternate mutation path.
+- Cross-cluster Fiducia communication uses authenticated APIs, events, or another explicit versioned contract; two clusters do not share broad database writers.
 
 ## Deployment topology
 
-- Specialized fiducia services — e.g. `fiducia-cloud/fiducia-node.rs`, `fiducia-cloud/fiducia-brain.rs` — run on a **separate k8s cluster**, not on `k8s-cluster`.
-- All traditional API servers and web servers run on [`github.com/ORESoftware/k8s-cluster`](https://github.com/ORESoftware/k8s-cluster).
+Traditional web/API/worker/migration workloads run through [`ORESoftware/k8s-cluster`](https://github.com/ORESoftware/k8s-cluster). Their GitOps definitions identify:
 
-## Rationale
+- runtime role (`web`, `api`, `combined-bff-api`, `worker`, `migrator`);
+- owner organization/project and database namespace;
+- public origin and private service name;
+- ServiceAccount and allowed network peers;
+- secret references for web state, domain read, domain write, and migration identities;
+- database/object-store/HTTP connection budgets;
+- migration bundle and ordering;
+- health, readiness, graceful shutdown, PDB, and rollback behavior.
 
-The through-line: **the schema is a private implementation detail of exactly one service (the API server), and the API is the contract everything else negotiates with.**
+Specialized `fiducia-node.rs`, `fiducia-brain.rs`, and related coordination services remain on the separate Fiducia cluster. The traditional and specialized clusters do not jointly mutate one schema with shared credentials.
 
-- **One service owns a schema.** The moment two deployables issue writes against the same tables, every migration becomes a coordinated release, and the API's invariants (validation, authorization, audit logging, cache invalidation) can be silently bypassed. The Rust API server is the sole write path and the sole owner of migrations.
-- **Reads are permitted from the web tier, but hardened at the boundary.** Reads need authorization too (tenant scoping, row-level filtering, field redaction) — most data leaks are read leaks. The web tier's read access is a deliberate, bounded exception governed by the guardrails below, not a license to embed business logic in web-tier queries.
-- **Security.** The web server sits closer to the public internet. It must never hold write-capable database credentials; if it is compromised, the blast radius is read-only.
-- **Shared-lib coupling is build-time coupling.** Sharing DB code between API and web trades runtime drift for lockfile-invisible version coupling. Segmenting `k8s-libs-and-shared-defs` by org keeps the blast radius of a schema change inside one org; strict schema namespacing keeps one org's migration from touching another org's tables.
-- **HTTP keep-alive first, fancy transports later.** Reusing connections removes most per-request latency; a bespoke long-lived protocol or gRPC adds operational complexity we don't need yet, and is revisited only with evidence that the HTTP hop is the bottleneck.
-- **Migration discipline.** Migrations run as a discrete deploy step (never on app boot with N replicas racing). Destructive changes follow expand → backfill → contract across separate releases.
-- **Connection-pool math.** The web tier scales wider than the API tier; web replicas × pool size must be budgeted against `max_connections` (prefer pointing web reads at a replica, and plan for read-after-write staleness).
+Cloudflare may provide TLS termination, WAF/rate limiting, caching, and public routing, but it does not redefine service ownership or replace application authorization.
 
-## Guardrails
+## Audit findings — 2026-08-08
 
-- **Split DB credentials three ways.** The dpm migration user has DDL rights; the API runtime user has DML but no DDL; the web-tier user is `SELECT`-only. Enforced in Postgres/CockroachDB grants, not in application code.
-- **Web-tier reads go through named query functions** (a shared repository layer exporting e.g. `get_published_items_for_tenant(tenant_id)`), never a raw ORM session or query builder handed to the web tier. The named functions are the read contract.
-- **Do not run migrations on app boot.** With N replicas rolling out you get N concurrent migration attempts. Migrations run as a discrete pre-deploy step (CI stage, init container, or job) via declarative-migrations, with human review of the generated SQL.
-- **Expand/contract for destructive schema changes.** Add new column → deploy code writing both → backfill → deploy code reading new → drop old column in a later release. Each step independently revertible.
-- **Web→API HTTP hygiene:** explicit connect/read timeouts shorter than the upstream request timeout; retries only on idempotent methods with jittered backoff; traffic stays on the private cluster network, never back out through the public load balancer.
-- **Read-after-write staleness:** if web-tier reads are ever pointed at a replica, plan for sticky reads or a short primary-read window after writes.
-- **Shared-defs namespacing:** every schema/definition consumed from `k8s-libs-and-shared-defs` must live in that repo's per-org segmentation (`pg-defs/schema/orgs/<org>/`) so org-level changes cannot collide or bleed across orgs; the CI parity and assembly gates enforce it.
+| Organization | Observed state | Classification | Required follow-through |
+| --- | --- | --- | --- |
+| `sonus-auris` | `sonus-auris-api-server.rs` is the consolidated product API and owns domain writes. `sonus-auris-web-server.rs` writes only its encrypted browser-session table and currently reads user-domain data through the typed API. | Conforming split. Web-session writes are a valid web-owned-state exception. | Keep shared direct reads optional/read-only; keep the web session migrator isolated; finish exact ORM provenance and live permission evidence under DEN-2787. |
+| `zed-pkg` | `zed-api-server.rs` still has legacy migration-at-boot behavior on `main`; `zed-web-server.rs` directly reads the registry DB and mirrors entities. Draft PRs `zed-api-server.rs#19` and `zed-web-server.rs#6` move migration out of startup and enforce the read-only web identity. | Intended split, implementation incomplete. | Merge only after exact-head Rust/Kustomize tests, provision `api_rw`/`web_ro`/`migrator` roles, add the discrete DPM Job, consume canonical `zed-orm-core`, and run `zed-pkg-test` permission/E2E lanes. |
+| `fiducia-cloud` | `fiducia-customer.rs` renders the customer app and still owns narrowly scoped customer profile/preferences/session/notification mutations; credential lifecycle is delegated to `fiducia-auth`. Coordination services remain on the specialized cluster. | Explicit combined BFF/API transition—not a read-only web server. | Keep customer and shared-coordination credentials separate; classify routes by owner; plan a dedicated customer API when mutation volume/stability justifies it; never extend the BFF writer into shared coordination data. |
 
-## Non-goals / future work (explicitly deferred)
+The audit therefore corrects four common ambiguities:
 
-- No custom long-lived application protocol/session or gRPC between web and API (revisit only if bounded HTTP connection reuse proves insufficient; ordinary keep-alive pooling is already in scope).
-- No web-tier writes of any kind, including "just this one table" — web-owned state (sessions, view cache) belongs in a separate web-owned store/schema if it's ever needed.
-- Caching layer in front of API reads as an alternative to widening direct web-tier DB access.
-- Renaming legacy `dd`-prefixed generated packages/paths (`dd-pg-defs-sea-orm`, `dd.pgdefs.*`, …) — one coordinated wave under DEN-2786 phase 4, deliberately not mixed into the segmentation work.
+1. “Web server is read-only” means **read-only toward product-domain data**, not incapable of writing its isolated browser-state store.
+2. “API owns migrations” means the **API/domain repository owns the migration source**, while a separate release job executes DDL.
+3. “No stateful TCP” means no custom stateful **internal web-to-API** protocol; HTTP keep-alive and browser WebSocket/SSE are permitted.
+4. Repository names are descriptive, not authoritative. A mixed service must be classified as `combined-bff-api` until it is split.
 
-## Shared ORM layer — `*-orm-core` (SeaORM)
+## Required tests and conformance gates
 
-Adopted 2026-08-07, later the same day as the baseline plan. This section records the crate-placement decision; it refines (does not reverse) the shared-boundary work tracked in DEN-2787 / DEN-2788 / DEN-2789.
+Every product pair must provide evidence for:
 
-Because both the web server and the API server read from the database, ORM code is shared through one dedicated per-organization SeaORM crate repository, rather than duplicated per service or embedded in a general-purpose `*-lib` repo:
+### Static/build gates
 
-- **Repos:** [`fiducia-cloud/fiducia-orm-core`](https://github.com/fiducia-cloud/fiducia-orm-core), [`sonus-auris/sonus-auris-orm-core`](https://github.com/sonus-auris/sonus-auris-orm-core), [`zed-pkg/zed-orm-core`](https://github.com/zed-pkg/zed-orm-core) (scaffold PR #1 in each).
-- **The Rust ORM is always SeaORM** — already the fleet standard per `pg-defs/rust-server-consumers.json` (`ordinaryPersistence: "SeaORM generated entities and repositories"`; no plain sqlx/tokio-postgres).
-- **Entities come from the generated SeaORM adapter in `k8s-libs-and-shared-defs`** (`pg-defs/generated/rust/sea-orm`, currently packaged as `dd-pg-defs-sea-orm`; the `dd` → owner-root rename is deliberately deferred to DEN-2786 phase 4). Each `*-orm-core` crate consumes only its own org's slice (`pg-defs/schema/orgs/<org>/`) and never defines an independent schema. Shared defs are imported as zed packages (`.zpkg.toml` dependency on `oresoftware/k8s-libs-and-shared-defs`), rev-pinned.
-- **Role-aware connect:** API servers use the ReadWrite connector (full entity surface, `read-write` cargo feature); web servers use the ReadOnly connector (`default_transaction_read_only=on` as defense in depth) and get only named, policy-aware query functions — no raw `DatabaseConnection`, query builder, or entity-manager export to web request handlers — on top of the web tier's `SELECT`-only database role.
-- **No migrations in the crate.** The owning API server keeps sole migration authority via declarative-migrations (`dpm`); `*-orm-core` is entity/query code only.
-- **Versioning:** each `*-orm-core` release pins the exact shared-defs revision it was generated against; major bumps are schema events and participate in the expand/contract compatibility window.
+- formatting, Clippy with warnings denied, unit/integration tests, and locked release build;
+- thin-entrypoint/module architecture checks;
+- no direct product write dependency or migration crate in the web target;
+- negative compile fixture proving a default web consumer cannot name ORM write types/functions;
+- generated interface/client/ORM provenance and digest checks;
+- route ownership inventory identifying browser, BFF, API, worker, and migration surfaces.
 
-**Reconciliation with in-flight PRs (DEN-2787/2788/2789):** the role-aware connector, org schema namespacing, and named-query-function patterns from the `*-lib` orm-crate PRs are the adopted content — they relocate to (or are re-exported from) the org's `*-orm-core` repo. The api-server/web-server consumer wiring in those PR sets stays as designed, with the import retargeted to `<org>/<org>-orm-core` via zed-pkg.
+### Database gates
 
-## External review hardening (DEN-2882)
+- API DML succeeds and undeclared DDL fails;
+- approved web reads succeed;
+- web `INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`, `CREATE`, `ALTER`, and `DROP` fail;
+- web/API cannot assume each other’s or the migrator’s role;
+- web-state migrator cannot affect product objects;
+- product migrator cannot affect another organization/project namespace;
+- read-only session settings and timeouts are verified at startup;
+- PostgreSQL and CockroachDB lanes are independent when both are supported.
 
-ChatGPT reviewed this plan through the ORESoftware ai-agent-bridge and approved the direction while
-conditioning merge on the following. These are **normative requirements**, not aspirations; each one names the
-control that is authoritative so no future reader mistakes a convenience for a boundary.
+### HTTP/browser gates
 
-1. **A Cargo feature is not a security boundary — the database principal is.** Cargo feature resolution is
-   *additive* across a dependency graph: any crate in a web server's graph that enables `read-write` turns the
-   write surface on everywhere, silently. The `read-only` default in `*-orm-core` is therefore an
-   ergonomics-and-intent mechanism only. The authoritative controls are (a) the web tier's `SELECT`-only database
-   role and (b) a sealed public API — raw `DatabaseConnection`, entity mutation APIs, and write helpers are
-   crate-private and unreachable from a default build. CI must carry a **negative compile check** proving a
-   default-feature consumer cannot name a write symbol, and must assert the web target's resolved feature set.
-2. **Direct web→DB reads require an authorization contract, not merely named query functions.** Every named read
-   function must take an explicit tenant/actor authorization context — an opaque capability, never a bare
-   `tenant_id` string a caller can forge or omit. CI must prove that a cross-tenant identifier cannot bypass
-   scoping. Where practical, Postgres RLS plus per-role grants provide the second, database-enforced boundary.
-   Reads leak data at least as often as writes do; "the API validates it" is not available to a direct-read path.
-3. **`default_transaction_read_only=on` is defense in depth, not the primary control.** Also pin the web role's
-   grants and `search_path`, and set bounded `statement_timeout`, `lock_timeout`, and
-   `idle_in_transaction_session_timeout` so a read-only web tier cannot become a resource-exhaustion path.
-4. **Migration ownership is repository/domain ownership, not runtime ownership.** The API *repository* owns the
-   migration set; production migrations run as a separately fenced, serialized release job (with an advisory
-   lock), never opportunistically at API replica startup — N replicas rolling out means N concurrent attempts.
-   Each destructive change records its expand → mixed-version → contract compatibility gates explicitly.
-5. **A shared SeaORM codebase does not make PostgreSQL and CockroachDB behave identically.** Dual-engine support
-   requires a dialect/conformance lane covering generated entities, transaction and isolation semantics, index
-   and constraint behavior, migration application, and **retryable serialization errors** (CockroachDB surfaces
-   these routinely where Postgres does not). Dual-engine support is a tested claim, never an inferred one.
-6. **Pin generated-code provenance mechanically.** Each `*-orm-core` release records the shared-defs commit *and*
-   a digest of the schema input it was generated from; CI fails when generated entities drift from that exact
-   input. A Zed/Cargo revision pin proves which source was selected, not that the generated output is current —
-   those are different claims and only the digest checks the second.
-7. **Transport wording, corrected.** HTTP keep-alive *does* use pooled, persistent TCP connections; the earlier
-   "no stateful TCP connections" phrasing was self-contradictory. What is actually excluded is a **custom
-   long-lived application protocol or session** between web and API (bespoke framing, sticky server-side session
-   state, streaming RPC). Ordinary bounded HTTP/1.1 or HTTP/2 connection reuse is expected and encouraged.
-   Revisiting gRPC or a bespoke transport requires measured evidence that connection reuse is the bottleneck.
-8. **Dedicated `*-orm-core` repos are the confirmed placement.** The review endorsed dedicated repos over
-   embedding ORM code in a general-purpose `*-lib`, given the generated-schema cadence and the database-specific
-   dependency surface. `*-lib` stays domain/pure, and **must not re-export write-capable ORM APIs** as a
-   compatibility shortcut — a re-export re-creates precisely the boundary this plan removes.
+- generated-client contract tests between web/API/CLI/mobile/desktop;
+- exact Host/Origin/CSRF/cookie/audience tests;
+- idempotent retry and duplicate-mutation tests;
+- timeout, API unavailability, load-shedding, and graceful-degradation tests;
+- cache-control and cross-user/cross-tenant leakage tests;
+- WebSocket/SSE authentication, origin, replay, and bounded-payload tests;
+- trace/request-id propagation across the web→API hop.
 
-Full review: DEN-2882 and the review comment on the canonical-doc PRs (fiducia-cloud/.github#31,
-sonus-auris/.github#23, zed-pkg/.github#34).
+### GitOps/edge gates
+
+- separate Deployments, Services, ServiceAccounts, secrets, and NetworkPolicies;
+- `app.<domain>`, `api.<domain>`, and `www.<domain>` route ownership;
+- no API writer or migrator credential in the web deployment;
+- no production boot-migration flag;
+- rendered-manifest and rollback evidence;
+- canaries run in representative `*-test` organizations before fleet promotion.
+
+DEN-3043 owns the machine-readable linter/exception format and must detect capability drift, not merely repository-name drift.
+
+## Remediation order
+
+1. Merge this role taxonomy into the three canonical `.github`/Linear plans and the cross-org architecture registry.
+2. Finish `*-orm-core` provenance, opaque-context, compile-fail, and live database evidence.
+3. Complete Zed’s discrete migration job and read-only web credential, then certify exact heads in `zed-pkg-test`.
+4. Keep Sonus Auris shared reads API-mediated unless a measured direct-read case satisfies every exception gate.
+5. Maintain the explicit `combined-bff-api` classification for `fiducia-customer.rs`; create/split a customer API as a focused rollout rather than silently treating presentation code as the domain boundary.
+6. Extend DEN-3043 so fleet checks cover web-owned schemas, combined services, migration-at-boot, object-store secrets, internal transport, and browser WebSocket/SSE—not only subdomain names.
+7. Attach exact PR, commit, rendered-manifest, and test evidence before marking organization conformance complete.
+
+## Exceptions
+
+Any deviation requires an ADR in the organization’s `.github` repository and a linked Linear issue. The ADR must state:
+
+- the runtime role and domain owner;
+- why the default split is unsuitable;
+- exact database, object-store, auth, and migration privileges;
+- affected public/private routes;
+- consistency, authorization, and failure-mode consequences;
+- tests and observability;
+- rollback;
+- an owner and review/expiry date.
+
+An exception may relax deployment shape, but it may not silently share broad writer credentials, bypass product authorization, run uncontrolled production DDL, or erase organization/project namespace boundaries.
