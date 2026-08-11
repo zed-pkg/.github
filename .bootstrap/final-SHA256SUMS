@@ -1,0 +1,7 @@
+a9fde469069571967fbb2b4659b7a90c33ad3dd2c36de48f7fd9f0de3315eb6a  ./.github/workflows/nightly-clients-fleet-hardening.yml
+c2f6587f9b73a94b7c6b6860229883beb68bbf36a529587d22ae75a5efca9f9e  ./docs/clients-fleet-hardening.md
+d7502eb6ff6c072872da1ef5b47767e24f303c6517329c34f61f7bf3ca0c87d1  ./tools/audit_harden_client.sh
+3ca27b6cc6a5a01c658cb88953d42c787234d8025de9f60a836eaf5462840ff2  ./tools/discover_clients_fleet.py
+afd1fac9f9756eee55e11ba2a90857a34c6cd0c5a39ac7d767a379e2487cfba4  ./tools/run_clients_batch.py
+1d834ac12eeaddb8d132c996ddad405808961f0dda09e441de3142a0c5e92e8e  ./tools/test_discover_clients_fleet.py
+d5eb86a5051ebe37e66280d4c77669bca0fabe4c2ac6f602aba6ac14d23690ee  ./tools/test_run_clients_batch.py
