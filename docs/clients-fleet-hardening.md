@@ -82,6 +82,14 @@ per-organization App token minting or, as the current static drop-in, a broader
 classic PAT. Credentials are never written to source, reports, artifacts,
 command output, or generated pull requests.
 
+Private or unpublished dependencies in `registry.zpkg.net` additionally require
+the repository Actions secret `ZED_PKG_TOKEN`. That `zpkg_…` credential is a
+registry token minted by `zed-api-server create-token` with registry database
+authority; it is distinct from the GitHub fleet credential and cannot be minted
+from a GitHub PAT. When it is absent or cannot see the declared package
+organization, the format lane records the resolver failure while the remaining
+client and consumer evidence continues.
+
 ## Manual verification
 
 A dry run can be dispatched with `apply=false` and an optional comma-separated
