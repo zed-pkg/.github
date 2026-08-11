@@ -1,0 +1,318 @@
+name: Nightly clients fleet hardening
+
+on:
+  schedule:
+    # GitHub cron is UTC. Run both offsets and gate on America/Chicago = 03:00,
+    # which remains correct across CST/CDT transitions.
+    - cron: '0 8 * * *'
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+    inputs:
+      orgs:
+        description: Optional comma-separated organization override
+        required: false
+        type: string
+      apply:
+        description: Push/update hardening pull requests and failure issues
+        required: true
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: nightly-clients-fleet-hardening
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: '1'
+  CARGO_TERM_COLOR: always
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.clock.outputs.should_run }}
+    steps:
+      - id: clock
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" != schedule ]]; then
+            echo 'should_run=true' >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          local_hour="$(TZ=America/Chicago date +%H)"
+          if [[ "$local_hour" == 03 ]]; then
+            echo 'should_run=true' >>"$GITHUB_OUTPUT"
+          else
+            echo "Skipping duplicate UTC trigger; America/Chicago hour is $local_hour"
+            echo 'should_run=false' >>"$GITHUB_OUTPUT"
+          fi
+
+  discover:
+    needs: gate
+    if: needs.gate.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      batch_matrix: ${{ steps.matrix.outputs.batch_matrix }}
+      count: ${{ steps.matrix.outputs.count }}
+      batch_count: ${{ steps.matrix.outputs.batch_count }}
+    env:
+      GITHUB_TOKEN: ${{ secrets.ZED_FLEET_GH_TOKEN }}
+      ORG_OVERRIDE: ${{ inputs.orgs || vars.ZED_FLEET_ORGS || '' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          show-progress: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12'
+      - name: Require cross-organization credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${GITHUB_TOKEN:-}" || {
+            echo '::error::ZED_FLEET_GH_TOKEN is required for complete private cross-organization discovery and writes.'
+            exit 1
+          }
+      - name: Test fleet discovery and batch runner
+        run: python -m unittest -v tools/test_discover_clients_fleet.py tools/test_run_clients_batch.py
+      - id: matrix
+        name: Discover clients, paired test orgs, and Zed consumers
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports/discovery
+          python tools/discover_clients_fleet.py \
+            --orgs "$ORG_OVERRIDE" \
+            --output reports/discovery/fleet.json \
+            --matrix-output reports/discovery/matrix.json \
+            --batch-matrix-output reports/discovery/batch-matrix.json \
+            --batch-size 4 \
+            --markdown reports/discovery/summary.md
+          matrix="$(tr -d '\n' < reports/discovery/matrix.json)"
+          batch_matrix="$(tr -d '\n' < reports/discovery/batch-matrix.json)"
+          count="$(python -c 'import json; print(len(json.load(open("reports/discovery/matrix.json"))["include"]))')"
+          batch_count="$(python -c 'import json; print(len(json.load(open("reports/discovery/batch-matrix.json"))["include"]))')"
+          echo "matrix=$matrix" >>"$GITHUB_OUTPUT"
+          echo "batch_matrix=$batch_matrix" >>"$GITHUB_OUTPUT"
+          echo "count=$count" >>"$GITHUB_OUTPUT"
+          echo "batch_count=$batch_count" >>"$GITHUB_OUTPUT"
+          cat reports/discovery/summary.md >>"$GITHUB_STEP_SUMMARY"
+      - name: Upload discovery report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: clients-fleet-discovery
+          path: reports/discovery
+          if-no-files-found: error
+          retention-days: 30
+
+  canonical-toolchain:
+    needs: gate
+    if: needs.gate.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      GITHUB_TOKEN: ${{ secrets.ZED_FLEET_GH_TOKEN }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: zed-pkg/zed-clients
+          ref: main
+          path: canonical
+          token: ${{ secrets.ZED_FLEET_GH_TOKEN }}
+          persist-credentials: false
+          show-progress: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: zed-pkg/zed-cli
+          ref: main
+          path: zed-cli
+          token: ${{ secrets.ZED_FLEET_GH_TOKEN }}
+          persist-credentials: false
+          show-progress: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: zed-pkg/zed-api-server.rs
+          ref: main
+          path: zed-api
+          token: ${{ secrets.ZED_FLEET_GH_TOKEN }}
+          persist-crdentials: false
+          show-progress: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12'
+      - name: Verify canonical schema and generator
+        run: |
+          python -m pip install --disable-pip-version-check tomlkit jsonschema
+          python -m py_compile canonical/scripts/harden_client_contract.py
+          python -m unittest -v canonical/tests/test_harden_client_contract.py
+      - name: Build Zed CLI from current tip
+        run: cargo build --locked --release --manifest-path zed-cli/Cargo.toml
+      - name: Check Zed API server from current tip
+        working-directory: zed-api
+        run: cargo check --locked --all-targets
+      - name: Validate canonical CLI/API package formats
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd canonical && ../zed-cli/target/release/zed validate --json)
+          (cd zed-api && ../zed-cli/target/release/zed validate --json)
+      - name: Assemble immutable run toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p toolchain
+          cp zed-cli/target/release/zed toolchain/zed
+          cp canonical/scripts/harden_client_contract.py toolchain/harden_client_contract.py
+          cp canonical/schemas/client-api.schema.json toolchain/client-api.schema.json
+          python - <<'PY'
+          import json, subprocess
+          def sha(path):
+              return subprocess.check_output(["git", "-C", path, "rev-parse", "HEAD"], text=True).strip()
+          value = {
+              "schemaVersion": 1,
+              "zedClients": sha("canonical"),
+              "zedCli": sha("zed-cli"),
+              "zedApiServer": sha("zed-api"),
+          }
+          open("toolchain/tips.json", "w", encoding="utf-8").write(json.dumps(value, indent=2, sort_keys=True) + "\n")
+          PY
+          sha256sum toolchain/* > toolchain/SHA256SUMS
+          sha256sum --check toolchain/SHA256SUMS
+      - name: Upload canonical run toolchain
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: zed-clients-canonical-toolchain
+          path: toolchain
+          if-no-files-found: error
+          retention-days: 7
+
+  harden:
+    needs:
+      - gate
+      - discover
+      - canonical-toolchain
+    if: needs.gate.outputs.should_run == 'true' && needs.discover.outputs.count != '0'
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix: ${{ fromJSON(needs.discover.outputs.batch_matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    env:
+      GITHUB_TOKEN: ${{ secrets.ZED_FLEET_GH_TOKEN }}
+      GH_TOKEN: ${{ secrets.ZED_FLEET_GH_TOKEN }}
+      APPLY: ${{ github.event_name != 'workflow_dispatch' || inputs.apply == 'true' }}
+      CLIENTS_JSON: ${{ toJSON(matrix.clients) }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          show-progress: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: zed-clients-canonical-toolchain
+          path: toolchain
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12'
+      - name: Install hardener and batch-runner dependencies
+        run: |
+          python -m pip install --disable-pip-version-check tomlkit jsonschema pytest
+          npm install --global typescript@5.7.3
+      - name: Install Nix
+        uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+      - name: Configure authenticated cross-organization Git
+        run: gh auth setup-git
+      - name: Audit batch, harden clients, and test current-tip consumers
+        shell: bash
+        env:
+          NIXPKGS_ALLOW_UNFREE: '1'
+        run: |
+          set -euo pipefail
+          rustup target add wasm32-unknown-unknown
+          mkdir -p "reports/batch-${{ matrix.batch_id }}"
+          nix flake metadata --json nixpkgs >"reports/batch-${{ matrix.batch_id }}/nixpkgs-metadata.json"
+          packages=(
+            nixpkgs#zig
+            nixpkgs#gleam
+            nixpkgs#elixir
+            nixpkgs#rebar3
+            nixpkgs#dart
+            nixpkgs#deno
+            nixpkgs#bun
+            nixpkgs#gradle
+            nixpkgs#composer
+          )
+          if ! command -v swift >/dev/null 2>&1; then
+            packages+=(nixpkgs#swift)
+          fi
+          nix shell --impure --accept-flake-config "$ {packages[@]}" \
+            --command python tools/run_clients_batch.py
+      - name: Upload batch reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: client-hardening-batch-${{ matrix.batch_id }}
+          path: reports
+          if-no-files-found: warn
+          retention-days: 30
+
+  report:
+    needs:
+      - gate
+      - discover
+      - canonical-toolchain
+      - harden
+    if: always() && needs.gate.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        continue-on-error: true
+        with:
+          pattern: 'client-hardening-batch-*'
+          path: reports
+          merge-multiple: true
+      - name: Publish fleet summary
+        shell: bash
+        env:
+          HARDEN_RESULT: ${{ needs.harden.result }}
+          DISCOVERY_COUNT: ${{ needs.discover.outputs.count }}
+          BATCH_COUNT: ${{ needs.discover.outputs.batch_count }}
+          DISCOVERY_RESULT: ${{ needs.discover.result }}
+          TOOLCHAIN_RESULT: ${{ needs.canonical-toolchain.result }}
+        run: |
+          set -euo pipefail
+          echo '# Nightly clients fleet hardening' >>"$GITHUB_STEP_SUMMARY"
+          echo >>"$GITHUB_STEP_SUMMARY"
+          echo "- discovered client repositories: **${DISCOVERY_COUNT:-0}**" >>"$GITHUB_STEP_SUMMARY"
+          echo "- bounded runner batches: **${BATCH_COUNT:-0}**" >>"$GITHUB_STEP_SUMMARY"
+          echo "- discovery result: **${DISCOVERY_RESULT:-not-run}**" >>"$GITHUB_STEP_SUMMARY"
+          echo "- canonical toolchain result: **${TOOLCHAIN_RESULT:-not-run}**" >>"$GITHUB_STEP_SUMMARY"
+          echo "- hardening matrix result: **${HARDEN_RESULT:-not-run}**" >>"$GITHUB_STEP_SUMMARY"
+          if [[ -d reports ]]; then
+            while IFS= read -r summary; do
+              echo >>"$GITHUB_STEP_SUMMARY"
+              cat "$summary" >>"$GITHUB_STEP_SUMMARY"
+            done < <(find reports -name summary.md -type f | sort)
+          fi
+          [[ "${DISCOVERY_RESULT:-failure}" == success ]]
+          [[ "${TOOLCHAIN_RESULT:-failure}" == success ]]
+          [[ "${HARDEN_RESULT:-failure}" == success ]]
