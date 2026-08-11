@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 MODULE_PATH = Path(__file__).with_name("discover_clients_fleet.py")
 spec = importlib.util.spec_from_file_location("discover_clients_fleet", MODULE_PATH)
@@ -90,6 +93,52 @@ class DiscoveryTests(unittest.TestCase):
             {"name": "fiducia-test-old", "full_name": "fiducia-cloud-test/fiducia-test-old", "archived": True},
         ]
         self.assertEqual(module.likely_test_repos(repos, client), ["fiducia-cloud-test/fiducia-e2e"])
+
+
+    def test_explicit_ca_bundle_is_loaded_by_verified_context(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            bundle = Path(temporary) / "runner-ca.pem"
+            bundle.write_text("test certificate bundle\n", encoding="utf-8")
+            sentinel = object()
+            with mock.patch.object(module.ssl, "create_default_context", return_value=sentinel) as create:
+                context = module.github_ssl_context(
+                    environ={"GITHUB_CA_BUNDLE": str(bundle)},
+                    candidates=(),
+                )
+            self.assertIs(context, sentinel)
+            create.assert_called_once_with(cafile=str(bundle))
+
+    def test_invalid_explicit_ca_bundle_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            missing = Path(temporary) / "missing.pem"
+            with self.assertRaisesRegex(ValueError, "GITHUB_CA_BUNDLE"):
+                module.github_ca_bundle(
+                    environ={"GITHUB_CA_BUNDLE": str(missing)},
+                    candidates=(),
+                )
+
+    def test_system_ca_bundle_is_used_when_python_defaults_diverge(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            missing = Path(temporary) / "missing.pem"
+            bundle = Path(temporary) / "system-ca.pem"
+            bundle.write_text("test certificate bundle\n", encoding="utf-8")
+            self.assertEqual(
+                module.github_ca_bundle(environ={}, candidates=(missing, bundle)),
+                bundle,
+            )
+
+    def test_github_requests_receive_the_verified_ssl_context(self) -> None:
+        context = mock.sentinel.ssl_context
+        response = io.BytesIO(b'{"ok": true}')
+        with mock.patch.object(module.urllib.request, "urlopen", return_value=response) as urlopen:
+            value = module.GitHub(
+                "token",
+                api="https://example.test",
+                ssl_context=context,
+            ).get("/repos/acme/sdk")
+        self.assertEqual(value, {"ok": True})
+        self.assertIs(urlopen.call_args.kwargs["context"], context)
+        self.assertEqual(urlopen.call_args.kwargs["timeout"], 45)
 
 
 if __name__ == "__main__":

@@ -12,6 +12,7 @@ import argparse
 import json
 import os
 import re
+import ssl
 import sys
 import tomllib
 import urllib.error
@@ -19,9 +20,51 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 API = "https://api.github.com"
+
+SYSTEM_CA_BUNDLES = (
+    Path("/etc/ssl/certs/ca-certificates.crt"),
+    Path("/etc/pki/tls/certs/ca-bundle.crt"),
+    Path("/etc/ssl/ca-bundle.pem"),
+)
+
+
+def github_ca_bundle(
+    *,
+    environ: Mapping[str, str] | None = None,
+    candidates: Iterable[Path] = SYSTEM_CA_BUNDLES,
+) -> Path | None:
+    """Return a trusted CA bundle without ever disabling certificate checks."""
+    source = os.environ if environ is None else environ
+    explicit = source.get("GITHUB_CA_BUNDLE", "").strip()
+    if explicit:
+        path = Path(explicit).expanduser()
+        if not path.is_file():
+            raise ValueError("GITHUB_CA_BUNDLE must reference an existing CA bundle")
+        return path
+
+    for variable in ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE"):
+        value = source.get(variable, "").strip()
+        if value:
+            path = Path(value).expanduser()
+            if path.is_file():
+                return path
+
+    return next((path for path in candidates if path.is_file()), None)
+
+
+def github_ssl_context(
+    *,
+    environ: Mapping[str, str] | None = None,
+    candidates: Iterable[Path] = SYSTEM_CA_BUNDLES,
+) -> ssl.SSLContext:
+    bundle = github_ca_bundle(environ=environ, candidates=candidates)
+    if bundle is None:
+        return ssl.create_default_context()
+    return ssl.create_default_context(cafile=os.fspath(bundle))
+
 
 class GitHubError(RuntimeError):
     def __init__(self, status: int, path: str, body: str) -> None:
@@ -31,11 +74,18 @@ class GitHubError(RuntimeError):
 
 
 class GitHub:
-    def __init__(self, token: str, api: str = API) -> None:
+    def __init__(
+        self,
+        token: str,
+        api: str = API,
+        *,
+        ssl_context: ssl.SSLContext | None = None,
+    ) -> None:
         if not token:
             raise ValueError("GITHUB_TOKEN is required")
         self.token = token
         self.api = api.rstrip("/")
+        self.ssl_context = ssl_context or github_ssl_context()
 
     def get(self, path: str) -> Any:
         request = urllib.request.Request(
@@ -48,7 +98,7 @@ class GitHub:
             },
         )
         try:
-            with urllib.request.urlopen(request, timeout=45) as response:
+            with urllib.request.urlopen(request, timeout=45, context=self.ssl_context) as response:
                 return json.load(response)
         except urllib.error.HTTPError as error:
             body = error.read().decode("utf-8", "replace")
