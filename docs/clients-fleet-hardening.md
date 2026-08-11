@@ -31,9 +31,13 @@ Every run checks out current `main` tips of:
 - `zed-pkg/zed-cli` for validation, install, build, release-preflight, and `r2g`;
 - `zed-pkg/zed-api-server.rs` for the current API-side package format.
 
-The controller builds the CLI from source, checks the API server, validates both
-canonical package manifests, records all three commit SHAs, and distributes the
-result as a checksummed workflow artifact.
+The controller builds the CLI from source, checks the API server, resolves and
+validates the dependency-bearing CLI and client locks with the current-tip CLI,
+validates the API package manifest, records all three commit SHAs, and
+distributes the result as a checksummed workflow artifact. Apply runs create or
+refresh a bounded `zed-pkg/zed-cli` lock pull request when current-tip resolution
+changes its checked-in lock; client lock drift is included in the normal client
+hardening pull request.
 
 The hardener preserves existing implementation files and guarantees a standard
 20-target matrix under `clients/` (hard floor: 15): C, C++, Zig, WebAssembly,
@@ -67,10 +71,13 @@ fleet summary are retained as Actions artifacts for 30 days.
 
 Cross-organization private checkouts and writes use the repository Actions secret
 `ZED_FLEET_GH_TOKEN`. The workflow fails closed when that secret is absent; it
-must contain a fine-grained token or GitHub App token with read access to all
-source/test organizations and contents, pull-request, and issue write access to
-the `*-clients` repositories. Credentials are never written to source, reports,
-artifacts, command output, or generated pull requests.
+must contain a GitHub credential with read access to every source/test
+organization and contents, pull-request, and issue write access to the managed
+repositories. GitHub fine-grained PATs and App installation tokens are scoped to
+one resource owner/installation, so a private multi-organization fleet requires
+per-organization App token minting or, as the current static drop-in, a broader
+classic PAT. Credentials are never written to source, reports, artifacts,
+command output, or generated pull requests.
 
 ## Manual verification
 

@@ -179,6 +179,21 @@ jobs:
           python -m unittest -v canonical/tests/test_harden_client_contract.py
       - name: Build Zed CLI from current tip
         run: cargo build --locked --release --manifest-path zed-cli/Cargo.toml
+      - name: Resolve current-tip CLI package lock
+        working-directory: zed-cli
+        shell: bash
+        env:
+          ZED_HOME: ${{ runner.temp }}/zed-cli-package-home
+        run: |
+          set -euo pipefail
+          ./target/release/zed \
+            --registry https://registry.zpkg.net \
+            --home "$ZED_HOME" \
+            install \
+            --install-mode copy
+          if ! git diff --quiet -- .zpkg.lock; then
+            echo '::notice title=Current-tip CLI lock drift::The resolver updated zed-cli/.zpkg.lock; an apply run will open or refresh its bounded lock PR.'
+          fi
       - name: Check Zed API server from current tip
         working-directory: zed-api
         run: cargo check --locked --all-targets
@@ -201,7 +216,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          (cd canonical && ../zed-cli/target/release/zed validate --json)
+          (cd zed-cli && ./target/release/zed validate --require-lock --json)
+          (cd canonical && ../zed-cli/target/release/zed validate --require-lock --json)
           (cd zed-api && ../zed-cli/target/release/zed validate --json)
       - name: Assemble immutable run toolchain
         shell: bash
@@ -232,6 +248,42 @@ jobs:
           path: toolchain
           if-no-files-found: error
           retention-days: 7
+      - name: Open or refresh current-tip CLI lock pull request
+        if: github.event_name != 'workflow_dispatch' || inputs.apply == 'true'
+        working-directory: zed-cli
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.ZED_FLEET_GH_TOKEN }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- .zpkg.lock; then
+            exit 0
+          fi
+          branch='automation/nightly-zed-lock'
+          git config user.name 'zed-pkg automation'
+          git config user.email 'zed-pkg-automation@users.noreply.github.com'
+          gh auth setup-git
+          git fetch origin "refs/heads/$branch:refs/remotes/origin/$branch" || true
+          git checkout -B "$branch"
+          git add .zpkg.lock
+          git commit -m 'chore: refresh current-tip zed package lock'
+          git push --force-with-lease origin "HEAD:$branch"
+          body_file="$RUNNER_TEMP/zed-cli-lock-pr.md"
+          cat >"$body_file" <<'EOF'
+          The nightly clients fleet controller regenerated `.zpkg.lock` with the current `zed-cli` resolver and validated it with `zed validate --require-lock --json`.
+
+          This branch is stable and is refreshed only when current-tip package resolution changes the committed lock.
+          EOF
+          pr_number="$(gh pr list --repo zed-pkg/zed-cli --head "$branch" --state open --json number --jq '.[0].number // empty')"
+          if [[ -n "$pr_number" ]]; then
+            gh pr edit "$pr_number" --repo zed-pkg/zed-cli \
+              --title 'chore: refresh current-tip zed package lock' \
+              --body-file "$body_file"
+          else
+            gh pr create --repo zed-pkg/zed-cli --base main --head "$branch" \
+              --title 'chore: refresh current-tip zed package lock' \
+              --body-file "$body_file"
+          fi
 
   harden:
     needs:
