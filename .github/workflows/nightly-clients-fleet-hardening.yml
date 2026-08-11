@@ -146,7 +146,7 @@ jobs:
           ref: main
           path: zed-api
           token: ${{ secrets.ZED_FLEET_GH_TOKEN }}
-          persist-crdentials: false
+          persist-credentials: false
           show-progress: false
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
@@ -264,7 +264,7 @@ jobs:
           if ! command -v swift >/dev/null 2>&1; then
             packages+=(nixpkgs#swift)
           fi
-          nix shell --impure --accept-flake-config "$ {packages[@]}" \
+          nix shell --impure --accept-flake-config "${packages[@]}" \
             --command python tools/run_clients_batch.py
       - name: Upload batch reports
         if: always()
