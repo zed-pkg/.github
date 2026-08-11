@@ -291,6 +291,21 @@ PY
     if [[ -f "$directory/composer.json" ]]; then
       run_native_logged "${label}-${safe}-composer" bash -lc \
         "cd '$directory' && composer validate --no-check-publish && composer install --no-interaction --prefer-dist --no-progress && find . -maxdepth 6 -type f -name '*.php' -not -path './vendor/*' -print0 | xargs -0 -r -n1 php -l"
+      local composer_has_test
+      composer_has_test="$(python - "$directory/composer.json" <<'PY'
+import json, sys
+value = json.load(open(sys.argv[1], encoding="utf-8"))
+scripts = value.get("scripts", {})
+print("yes" if isinstance(scripts, dict) and scripts.get("test") else "")
+PY
+)"
+      if [[ -n "$composer_has_test" ]]; then
+        run_native_logged "${label}-${safe}-composer-test" bash -lc \
+          "cd '$directory' && composer run --no-interaction test"
+      elif find "$directory/tests" -maxdepth 3 -type f -name '*.php' -print -quit 2>/dev/null | grep -q .; then
+        run_native_logged "${label}-${safe}-php-test" bash -lc \
+          "cd '$directory' && find tests -maxdepth 3 -type f -name '*.php' -print0 | sort -z | xargs -0 -r -n1 php"
+      fi
     fi
 
     if find "$directory" -maxdepth 1 -type f -name '*.gemspec' -print -quit | grep -q .; then
@@ -299,6 +314,9 @@ PY
       if [[ -f "$directory/Gemfile" && -f "$directory/Rakefile" ]]; then
         run_native_logged "${label}-${safe}-ruby-test" bash -lc \
           "cd '$directory' && bundle install && bundle exec rake test"
+      elif find "$directory/test" -maxdepth 3 -type f -name '*_test.rb' -print -quit 2>/dev/null | grep -q .; then
+        run_native_logged "${label}-${safe}-ruby-test" bash -lc \
+          "cd '$directory' && find test -maxdepth 3 -type f -name '*_test.rb' -print0 | sort -z | xargs -0 -r -n1 ruby -Ilib"
       fi
     fi
   done <"$roots_file"

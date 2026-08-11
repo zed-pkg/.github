@@ -126,6 +126,20 @@ version = "0.1.0"
         self.assertEqual(status, 0, output)
         self.assertIn("consumer-fixture-.-maven-test", commands)
 
+    def test_php_and_ruby_behavioral_tests_are_not_only_linted(self) -> None:
+        status, commands, output = self.run_fixture(
+            {
+                "php/composer.json": json.dumps({"name": "example/consumer"}),
+                "php/tests/client_test.php": "<?php exit(0);\n",
+                "ruby/consumer.gemspec": "Gem::Specification.new {}\n",
+                "ruby/test/client_test.rb": "exit 0\n",
+            }
+        )
+
+        self.assertEqual(status, 0, output)
+        self.assertIn("consumer-fixture-._php-php-test", commands)
+        self.assertIn("consumer-fixture-._ruby-ruby-test", commands)
+
 
 if __name__ == "__main__":
     unittest.main()
