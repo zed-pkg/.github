@@ -391,8 +391,9 @@ repository["vcs"] = "git"
 repository["url"] = f"https://github.com/{sys.argv[2]}"
 path.write_text(tomlkit.dumps(data), encoding="utf-8")
 PY
+run_logged zed-install-target bash -lc \
+  "cd '$TARGET' && '$ZED' --registry https://registry.zpkg.net --home '$ZED_HOME' install --install-mode copy"
 run_logged zed-validate bash -lc "cd '$TARGET' && '$ZED' validate --json"
-run_logged zed-install-target bash -lc "cd '$TARGET' && '$ZED' install"
 run_logged git-diff-check git -C "$TARGET" diff --check
 
 if ! git -C "$TARGET" diff --quiet || [[ -n "$(git -C "$TARGET" ls-files --others --exclude-standard)" ]]; then

@@ -182,6 +182,21 @@ jobs:
       - name: Check Zed API server from current tip
         working-directory: zed-api
         run: cargo check --locked --all-targets
+      - name: Resolve canonical package lock with current-tip CLI
+        working-directory: canonical
+        shell: bash
+        env:
+          ZED_HOME: ${{ runner.temp }}/zed-clients-canonical-home
+        run: |
+          set -euo pipefail
+          ../zed-cli/target/release/zed \
+            --registry https://registry.zpkg.net \
+            --home "$ZED_HOME" \
+            install \
+            --install-mode copy
+          if ! git diff --quiet -- .zpkg.lock; then
+            echo '::notice title=Canonical Zed lock drift::The current-tip resolver updated .zpkg.lock; the fleet hardener will include it in the bounded client PR.'
+          fi
       - name: Validate canonical CLI/API package formats
         shell: bash
         run: |
