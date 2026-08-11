@@ -142,6 +142,8 @@ jobs:
     if: needs.gate.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    outputs:
+      format_result: ${{ steps.format_status.outputs.result }}
     env:
       GITHUB_TOKEN: ${{ secrets.ZED_FLEET_GH_TOKEN }}
     steps:
@@ -180,6 +182,8 @@ jobs:
       - name: Build Zed CLI from current tip
         run: cargo build --locked --release --manifest-path zed-cli/Cargo.toml
       - name: Resolve current-tip CLI package lock
+        id: cli_resolve
+        continue-on-error: true
         working-directory: zed-cli
         shell: bash
         env:
@@ -198,6 +202,8 @@ jobs:
         working-directory: zed-api
         run: cargo check --locked --all-targets
       - name: Resolve canonical package lock with current-tip CLI
+        id: canonical_resolve
+        continue-on-error: true
         working-directory: canonical
         shell: bash
         env:
@@ -213,12 +219,38 @@ jobs:
             echo '::notice title=Canonical Zed lock drift::The current-tip resolver updated .zpkg.lock; the fleet hardener will include it in the bounded client PR.'
           fi
       - name: Validate canonical CLI/API package formats
+        id: format_validate
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
-          (cd zed-cli && ./target/release/zed validate --require-lock --json)
-          (cd canonical && ../zed-cli/target/release/zed validate --require-lock --json)
-          (cd zed-api && ../zed-cli/target/release/zed validate --json)
+          status=0
+          (cd zed-cli && ./target/release/zed validate --require-lock --json) || status=1
+          (cd canonical && ../zed-cli/target/release/zed validate --require-lock --json) || status=1
+          (cd zed-api && ../zed-cli/target/release/zed validate --json) || status=1
+          exit "$status"
+      - name: Record current-tip package-format result
+        id: format_status
+        if: always()
+        shell: bash
+        env:
+          CLI_RESOLVE: ${{ steps.cli_resolve.outcome }}
+          CANONICAL_RESOLVE: ${{ steps.canonical_resolve.outcome }}
+          FORMAT_VALIDATE: ${{ steps.format_validate.outcome }}
+        run: |
+          set -euo pipefail
+          result=success
+          for value in "$CLI_RESOLVE" "$CANONICAL_RESOLVE" "$FORMAT_VALIDATE"; do
+            [[ "$value" == success ]] || result=failure
+          done
+          echo "result=$result" >>"$GITHUB_OUTPUT"
+          {
+            echo '## Current-tip Zed package formats'
+            echo
+            echo "- zed-cli resolution: **$CLI_RESOLVE**"
+            echo "- zed-clients resolution: **$CANONICAL_RESOLVE**"
+            echo "- CLI/client/API validation: **$FORMAT_VALIDATE**"
+          } >>"$GITHUB_STEP_SUMMARY"
       - name: Assemble immutable run toolchain
         shell: bash
         run: |
@@ -249,7 +281,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
       - name: Open or refresh current-tip CLI lock pull request
-        if: github.event_name != 'workflow_dispatch' || inputs.apply == 'true'
+        if: steps.cli_resolve.outcome == 'success' && (github.event_name != 'workflow_dispatch' || inputs.apply == 'true')
         working-directory: zed-cli
         shell: bash
         env:
@@ -388,6 +420,7 @@ jobs:
           BATCH_COUNT: ${{ needs.discover.outputs.batch_count }}
           DISCOVERY_RESULT: ${{ needs.discover.result }}
           TOOLCHAIN_RESULT: ${{ needs.canonical-toolchain.result }}
+          FORMAT_RESULT: ${{ needs.canonical-toolchain.outputs.format_result }}
         run: |
           set -euo pipefail
           {
@@ -404,6 +437,7 @@ jobs:
             echo "- bounded runner batches: **${BATCH_COUNT:-0}**"
             echo "- discovery result: **${DISCOVERY_RESULT:-not-run}**"
             echo "- canonical toolchain result: **${TOOLCHAIN_RESULT:-not-run}**"
+            echo "- current-tip package formats: **${FORMAT_RESULT:-not-run}**"
             echo "- hardening matrix result: **${HARDEN_RESULT:-not-run}**"
           } >>"$GITHUB_STEP_SUMMARY"
           if [[ -d reports ]]; then
@@ -416,4 +450,5 @@ jobs:
           fi
           [[ "${DISCOVERY_RESULT:-failure}" == success ]]
           [[ "${TOOLCHAIN_RESULT:-failure}" == success ]]
+          [[ "${FORMAT_RESULT:-failure}" == success ]]
           [[ "${HARDEN_RESULT:-failure}" == success ]]

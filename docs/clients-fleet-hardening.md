@@ -37,7 +37,10 @@ validates the API package manifest, records all three commit SHAs, and
 distributes the result as a checksummed workflow artifact. Apply runs create or
 refresh a bounded `zed-pkg/zed-cli` lock pull request when current-tip resolution
 changes its checked-in lock; client lock drift is included in the normal client
-hardening pull request.
+hardening pull request. Resolver or format failures remain a red final result,
+but do not suppress the immutable toolchain artifact or the independent client
+and consumer fan-out; this keeps one registry-plane blocker from hiding the
+rest of the fleet evidence.
 
 The hardener preserves existing implementation files and guarantees a standard
 20-target matrix under `clients/` (hard floor: 15): C, C++, Zig, WebAssembly,
