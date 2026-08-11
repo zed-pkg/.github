@@ -31,9 +31,16 @@ Every run checks out current `main` tips of:
 - `zed-pkg/zed-cli` for validation, install, build, release-preflight, and `r2g`;
 - `zed-pkg/zed-api-server.rs` for the current API-side package format.
 
+The controller also reads the immutable `zed-interfaces` commit pinned by the
+canonical `zed-clients` Nix workflow, archives that exact tree into the
+checksummed run artifact, and restores it beside each client checkout. Rust and
+WebAssembly path dependencies therefore use the reviewed compatible contract,
+not a moving interface branch.
+
 The controller builds the CLI from source, checks the API server, resolves and
 validates the dependency-bearing CLI and client locks with the current-tip CLI,
-validates the API package manifest, records all three commit SHAs, and
+validates the API package manifest, records those three tips plus the pinned
+interface revision, and
 distributes the result as a checksummed workflow artifact. Apply runs create or
 refresh a bounded `zed-pkg/zed-cli` lock pull request when current-tip resolution
 changes its checked-in lock; client lock drift is included in the normal client
@@ -61,8 +68,10 @@ in one ephemeral Zed workspace. Workspace membership makes consumers resolve the
 freshly hardened working tree by local path instead of silently testing an older
 published registry version. The controller then runs Zed validation/install/build
 plus native compile and test adapters for Cargo, CMake, Zig, Go, Node package
-managers, TypeScript, Deno, Dart, Python, Mix, Gleam, Rebar3, Gradle, Swift,
-Composer/PHP, and RubyGems.
+managers, TypeScript, Deno, Dart, Python, Mix, Gleam, Rebar3, Maven, Gradle, Swift,
+Composer/PHP, RubyGems, and .NET project/solution files. A consumer repository
+with discoverable package metadata but no native build, check, or test command
+is a hard coverage failure rather than an implicit pass.
 
 When the hardener changes a client repository, the job updates the stable branch
 `automation/nightly-client-hardening` and creates or refreshes a pull request.

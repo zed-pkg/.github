@@ -1,0 +1,131 @@
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+import unittest
+
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+AUDIT_SCRIPT = REPOSITORY_ROOT / "tools" / "audit_harden_client.sh"
+
+
+class NativeCoverageTests(unittest.TestCase):
+    def run_fixture(self, files: dict[str, str]) -> tuple[int, list[str], str]:
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_root = Path(temporary)
+            fixture_root = temporary_root / "fixture"
+            fixture_root.mkdir()
+            for relative, content in files.items():
+                path = fixture_root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content, encoding="utf-8")
+
+            capture = temporary_root / "commands.txt"
+            workspace = temporary_root / "workspace"
+            workspace.mkdir()
+            environment = os.environ.copy()
+            environment.update(
+                {
+                    "AUDIT_SCRIPT": str(AUDIT_SCRIPT),
+                    "CAPTURE": str(capture),
+                    "CASE_ROOT": str(fixture_root),
+                    "CLIENT_REPO": "example/example-clients",
+                    "CLIENT_ORG": "example",
+                    "CLIENT_NAME": "example-clients",
+                    "CLIENT_PREFIX": "example",
+                    "ZED_ORG": "example",
+                    "ZED_NAME": "example-clients",
+                    "ZED_COORDINATE": "example/example-clients",
+                    "DEFAULT_BRANCH": "main",
+                    "TEST_ORG": "example-test",
+                    "GITHUB_WORKSPACE": str(workspace),
+                }
+            )
+            command = r'''
+source "$AUDIT_SCRIPT"
+run_logged() {
+  printf '%s\n' "$1" >>"$CAPTURE"
+}
+STATUS=0
+run_native_tests "$CASE_ROOT" consumer-fixture
+printf 'STATUS=%s\n' "$STATUS"
+'''
+            result = subprocess.run(
+                ["bash", "-c", command],
+                env=environment,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            commands = capture.read_text(encoding="utf-8").splitlines() if capture.exists() else []
+            status_line = next(
+                (line for line in result.stdout.splitlines() if line.startswith("STATUS=")),
+                "STATUS=99",
+            )
+            return int(status_line.removeprefix("STATUS=")), commands, result.stdout + result.stderr
+
+    def test_manifest_without_native_command_fails_closed(self) -> None:
+        status, commands, output = self.run_fixture(
+            {
+                ".zpkg.toml": """
+[package]
+org = "example"
+name = "consumer"
+version = "0.1.0"
+""",
+            }
+        )
+
+        self.assertEqual(status, 1, output)
+        self.assertEqual(commands, [])
+        self.assertIn("no native build, check, or test command ran", output)
+
+    def test_node_build_runs_before_test(self) -> None:
+        status, commands, output = self.run_fixture(
+            {
+                "package.json": json.dumps(
+                    {
+                        "name": "consumer",
+                        "scripts": {
+                            "test": "node --test",
+                            "build": "tsc",
+                        },
+                    }
+                ),
+            }
+        )
+
+        self.assertEqual(status, 0, output)
+        self.assertLess(
+            commands.index("consumer-fixture-.-node-build"),
+            commands.index("consumer-fixture-.-node-test"),
+        )
+
+    def test_dotnet_solution_gets_build_and_test_coverage(self) -> None:
+        status, commands, output = self.run_fixture(
+            {
+                "Consumer.sln": "Microsoft Visual Studio Solution File, Format Version 12.00\n",
+                "src/Consumer.csproj": '<Project Sdk="Microsoft.NET.Sdk" />\n',
+            }
+        )
+
+        self.assertEqual(status, 0, output)
+        self.assertIn("consumer-fixture-.-dotnet-build", commands)
+        self.assertIn("consumer-fixture-.-dotnet-test", commands)
+
+    def test_maven_project_gets_test_coverage(self) -> None:
+        status, commands, output = self.run_fixture(
+            {
+                "pom.xml": "<project />\n",
+            }
+        )
+
+        self.assertEqual(status, 0, output)
+        self.assertIn("consumer-fixture-.-maven-test", commands)
+
+
+if __name__ == "__main__":
+    unittest.main()

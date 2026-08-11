@@ -24,6 +24,7 @@ TOOLCHAIN="$GITHUB_WORKSPACE/toolchain"
 ZED="$TOOLCHAIN/zed"
 HARDENER="$TOOLCHAIN/harden_client_contract.py"
 SCHEMA="$TOOLCHAIN/client-api.schema.json"
+INTERFACES_ARCHIVE="$TOOLCHAIN/zed-interfaces.tar.gz"
 REPORT="$GITHUB_WORKSPACE/reports/${CLIENT_ORG}__${CLIENT_NAME}"
 BRANCH="automation/nightly-client-hardening"
 MEMBERS_FILE="$REPORT/workspace-members.txt"
@@ -79,6 +80,11 @@ run_logged() {
   return 0
 }
 
+run_native_logged() {
+  NATIVE_COMMAND_COUNT=$((NATIVE_COMMAND_COUNT + 1))
+  run_logged "$@"
+}
+
 node_install_command() {
   local directory="$1"
   if [[ -f "$directory/pnpm-lock.yaml" ]]; then
@@ -107,6 +113,7 @@ run_native_tests() {
   local root="$1"
   local label="$2"
   local roots_file="$REPORT/$(safe_name "$label").roots"
+  local NATIVE_COMMAND_COUNT=0
   (
     cd "$root"
     find . -maxdepth 7 \
@@ -115,8 +122,10 @@ run_native_tests() {
       \( -name Cargo.toml -o -name package.json -o -name deno.json -o -name deno.jsonc \
          -o -name go.mod -o -name pubspec.yaml -o -name pyproject.toml -o -name mix.exs \
          -o -name gleam.toml -o -name rebar.config -o -name CMakeLists.txt -o -name build.zig \
+         -o -name pom.xml \
          -o -name build.gradle -o -name build.gradle.kts -o -name settings.gradle -o -name settings.gradle.kts \
-         -o -name Package.swift -o -name composer.json -o -name '*.gemspec' -o -name .zpkg.toml \) \
+         -o -name Package.swift -o -name composer.json -o -name '*.gemspec' -o -name '*.csproj' \
+         -o -name '*.sln' -o -name .zpkg.toml \) \
       -printf '%h\n' | sort -u
   ) >"$roots_file"
 
@@ -129,39 +138,39 @@ run_native_tests() {
   while IFS= read -r relative; do
     [[ -n "$relative" ]] || continue
     local directory="$root/${relative#./}"
-    local safe
+    local safe zed_test_script
     safe="$(safe_name "$relative")"
 
     if [[ -f "$directory/.zpkg.toml" ]]; then
       zed_test_script="$(python -c 'import sys,tomllib,pathlib; value=tomllib.loads(pathlib.Path(sys.argv[1]).read_text()); scripts=value.get("scripts",{}); print("test" if isinstance(scripts,dict) and isinstance(scripts.get("test"),str) and scripts["test"].strip() else "")' "$directory/.zpkg.toml" 2>/dev/null || true)"
       if [[ -n "$zed_test_script" ]]; then
-        run_logged "${label}-${safe}-zed-script-test" bash -lc "cd '$directory' && '$ZED' run test"
+        run_native_logged "${label}-${safe}-zed-script-test" bash -lc "cd '$directory' && '$ZED' run test"
       fi
     fi
 
     if [[ -f "$directory/CMakeLists.txt" ]]; then
-      run_logged "${label}-${safe}-cmake" bash -lc \
+      run_native_logged "${label}-${safe}-cmake" bash -lc \
         "cd '$directory' && rm -rf .zed-build && cmake -S . -B .zed-build -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build .zed-build --parallel && ctest --test-dir .zed-build --output-on-failure"
     fi
 
     if [[ -f "$directory/build.zig" ]]; then
-      run_logged "${label}-${safe}-zig" bash -lc "cd '$directory' && zig build"
+      run_native_logged "${label}-${safe}-zig" bash -lc "cd '$directory' && zig build"
     fi
 
     if [[ -f "$directory/Cargo.toml" ]]; then
       local cargo_locked=""
       [[ -f "$directory/Cargo.lock" ]] && cargo_locked="--locked"
-      run_logged "${label}-${safe}-cargo-test" bash -lc \
+      run_native_logged "${label}-${safe}-cargo-test" bash -lc \
         "cd '$directory' && cargo test $cargo_locked --workspace --all-targets --all-features"
       if [[ "$relative" == *"wasm"* || -f "$directory/.zed-client-contract.json" ]] && \
          grep -q 'cdylib' "$directory/Cargo.toml" 2>/dev/null; then
-        run_logged "${label}-${safe}-cargo-wasm-check" bash -lc \
+        run_native_logged "${label}-${safe}-cargo-wasm-check" bash -lc \
           "cd '$directory' && cargo check $cargo_locked --target wasm32-unknown-unknown --all-features"
       fi
     fi
 
     if [[ -f "$directory/go.mod" ]]; then
-      run_logged "${label}-${safe}-go-test" bash -lc "cd '$directory' && go test ./..."
+      run_native_logged "${label}-${safe}-go-test" bash -lc "cd '$directory' && go test ./..."
     fi
 
     if [[ -f "$directory/package.json" ]]; then
@@ -170,7 +179,7 @@ run_native_tests() {
       scripts="$(node - "$directory/package.json" <<'NODE'
 const fs = require('fs');
 const p = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
-for (const name of ['test', 'check', 'typecheck', 'build']) {
+for (const name of ['build', 'check', 'typecheck', 'test']) {
   const value = p.scripts && p.scripts[name];
   if (!value) continue;
   if (name === 'test' && /no test specified/i.test(value)) continue;
@@ -183,14 +192,14 @@ NODE
         while IFS= read -r script; do
           [[ -n "$script" ]] || continue
           script_cmd="$(node_run_command "$directory" "$script")"
-          run_logged "${label}-${safe}-node-${script}" bash -lc "cd '$directory' && $script_cmd"
+          run_native_logged "${label}-${safe}-node-${script}" bash -lc "cd '$directory' && $script_cmd"
         done <<<"$scripts"
       else
         if find "$directory" -maxdepth 5 -type f -name '*.ts' -not -path '*/node_modules/*' -print -quit | grep -q .; then
-          run_logged "${label}-${safe}-typescript-check" bash -lc \
+          run_native_logged "${label}-${safe}-typescript-check" bash -lc \
             "cd '$directory' && mapfile -d '' files < <(find . -maxdepth 5 -type f -name '*.ts' -not -path './node_modules/*' -print0); tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext \"\${files[@]}\""
         elif find "$directory" -maxdepth 5 -type f -name '*.js' -not -path '*/node_modules/*' -print -quit | grep -q .; then
-          run_logged "${label}-${safe}-javascript-check" bash -lc \
+          run_native_logged "${label}-${safe}-javascript-check" bash -lc \
             "cd '$directory' && find . -maxdepth 5 -type f -name '*.js' -not -path './node_modules/*' -print0 | xargs -0 -r -n1 node --check"
         else
           STATUS=1
@@ -203,71 +212,101 @@ NODE
       local deno_config="deno.json"
       [[ -f "$directory/deno.json" ]] || deno_config="deno.jsonc"
       if grep -qE '"test"[[:space:]]*:' "$directory/$deno_config"; then
-        run_logged "${label}-${safe}-deno-test" bash -lc "cd '$directory' && deno task --config '$deno_config' test"
+        run_native_logged "${label}-${safe}-deno-test" bash -lc "cd '$directory' && deno task --config '$deno_config' test"
       else
-        run_logged "${label}-${safe}-deno-check" bash -lc \
+        run_native_logged "${label}-${safe}-deno-check" bash -lc \
           "cd '$directory' && mapfile -d '' files < <(find . -maxdepth 5 -type f -name '*.ts' -print0); (( \${#files[@]} > 0 )) && deno check --config '$deno_config' \"\${files[@]}\""
       fi
     fi
 
     if [[ -f "$directory/pubspec.yaml" ]]; then
-      run_logged "${label}-${safe}-dart-analyze" bash -lc "cd '$directory' && dart pub get && dart analyze"
+      run_native_logged "${label}-${safe}-dart-analyze" bash -lc "cd '$directory' && dart pub get && dart analyze"
       if [[ -d "$directory/test" ]]; then
-        run_logged "${label}-${safe}-dart-test" bash -lc "cd '$directory' && dart test"
+        run_native_logged "${label}-${safe}-dart-test" bash -lc "cd '$directory' && dart test"
       fi
     fi
 
     if [[ -f "$directory/pyproject.toml" ]]; then
-      run_logged "${label}-${safe}-python-build" bash -lc \
+      run_native_logged "${label}-${safe}-python-build" bash -lc \
         "cd '$directory' && (python -m pip install --disable-pip-version-check -e '.[test]' || python -m pip install --disable-pip-version-check -e .) && python -m compileall -q ."
-      if [[ -d "$directory/tests" || -f "$directory/pytest.ini" || -f "$directory/pyproject.toml" && -d "$directory/test" ]]; then
-        run_logged "${label}-${safe}-python-test" bash -lc "cd '$directory' && python -m pytest"
+      if [[ -d "$directory/tests" || -d "$directory/test" || -f "$directory/pytest.ini" ]] || \
+         find "$directory" -maxdepth 1 -type f \( -name 'test_*.py' -o -name '*_test.py' \) -print -quit | grep -q .; then
+        run_native_logged "${label}-${safe}-python-test" bash -lc "cd '$directory' && python -m pytest"
       fi
     fi
 
     if [[ -f "$directory/mix.exs" ]]; then
-      run_logged "${label}-${safe}-mix-test" bash -lc \
+      run_native_logged "${label}-${safe}-mix-test" bash -lc \
         "cd '$directory' && mix local.hex --force && mix local.rebar --force && mix deps.get && mix compile --warnings-as-errors && mix test"
     fi
 
     if [[ -f "$directory/gleam.toml" ]]; then
-      run_logged "${label}-${safe}-gleam-test" bash -lc \
+      run_native_logged "${label}-${safe}-gleam-test" bash -lc \
         "cd '$directory' && gleam deps download && gleam build && gleam test"
     fi
 
     if [[ -f "$directory/rebar.config" ]]; then
-      run_logged "${label}-${safe}-rebar-test" bash -lc "cd '$directory' && rebar3 compile && rebar3 eunit"
+      run_native_logged "${label}-${safe}-rebar-test" bash -lc "cd '$directory' && rebar3 compile && rebar3 eunit"
+    fi
+
+    if [[ -f "$directory/pom.xml" ]]; then
+      local maven_cmd="mvn"
+      [[ -x "$directory/mvnw" ]] && maven_cmd="./mvnw"
+      run_native_logged "${label}-${safe}-maven-test" bash -lc \
+        "cd '$directory' && $maven_cmd --batch-mode --no-transfer-progress test"
     fi
 
     if [[ -f "$directory/build.gradle" || -f "$directory/build.gradle.kts" || -f "$directory/settings.gradle" || -f "$directory/settings.gradle.kts" ]]; then
       local gradle_cmd="gradle"
       [[ -x "$directory/gradlew" ]] && gradle_cmd="./gradlew"
-      run_logged "${label}-${safe}-gradle-test" bash -lc \
+      run_native_logged "${label}-${safe}-gradle-test" bash -lc \
         "cd '$directory' && $gradle_cmd --no-daemon --stacktrace test"
+    fi
+
+    if find "$directory" -maxdepth 1 -type f \( -name '*.sln' -o -name '*.csproj' \) -print -quit | grep -q .; then
+      local dotnet_target dotnet_target_quoted
+      dotnet_target="$(python - "$directory" <<'PY'
+from pathlib import Path
+import sys
+root = Path(sys.argv[1])
+candidates = sorted(root.glob("*.sln")) or sorted(root.glob("*.csproj"))
+print(candidates[0].name if candidates else "")
+PY
+)"
+      printf -v dotnet_target_quoted '%q' "$dotnet_target"
+      run_native_logged "${label}-${safe}-dotnet-build" bash -lc \
+        "cd '$directory' && dotnet restore $dotnet_target_quoted && dotnet build $dotnet_target_quoted --configuration Release --no-restore"
+      run_native_logged "${label}-${safe}-dotnet-test" bash -lc \
+        "cd '$directory' && dotnet test $dotnet_target_quoted --configuration Release --no-build --no-restore"
     fi
 
     if [[ -f "$directory/Package.swift" ]]; then
       if [[ -d "$directory/Tests" ]]; then
-        run_logged "${label}-${safe}-swift-test" bash -lc "cd '$directory' && swift test"
+        run_native_logged "${label}-${safe}-swift-test" bash -lc "cd '$directory' && swift test"
       else
-        run_logged "${label}-${safe}-swift-build" bash -lc "cd '$directory' && swift build"
+        run_native_logged "${label}-${safe}-swift-build" bash -lc "cd '$directory' && swift build"
       fi
     fi
 
     if [[ -f "$directory/composer.json" ]]; then
-      run_logged "${label}-${safe}-composer" bash -lc \
+      run_native_logged "${label}-${safe}-composer" bash -lc \
         "cd '$directory' && composer validate --no-check-publish && composer install --no-interaction --prefer-dist --no-progress && find . -maxdepth 6 -type f -name '*.php' -not -path './vendor/*' -print0 | xargs -0 -r -n1 php -l"
     fi
 
     if find "$directory" -maxdepth 1 -type f -name '*.gemspec' -print -quit | grep -q .; then
-      run_logged "${label}-${safe}-ruby-gem" bash -lc \
-        "cd '$directory' && gem build ./*.gemspec && find . -maxdepth 6 -type f -name '*.rb' -not -path './vendor/*' -print0 | xargs -0 -r -n1 ruby -c"
+      run_native_logged "${label}-${safe}-ruby-gem" bash -lc \
+        "cd '$directory' && for gemspec in ./*.gemspec; do gem build \"\$gemspec\"; done && find . -maxdepth 6 -type f -name '*.rb' -not -path './vendor/*' -print0 | xargs -0 -r -n1 ruby -c"
       if [[ -f "$directory/Gemfile" && -f "$directory/Rakefile" ]]; then
-        run_logged "${label}-${safe}-ruby-test" bash -lc \
+        run_native_logged "${label}-${safe}-ruby-test" bash -lc \
           "cd '$directory' && bundle install && bundle exec rake test"
       fi
     fi
   done <"$roots_file"
+
+  if (( NATIVE_COMMAND_COUNT == 0 )); then
+    STATUS=1
+    echo "::error title=${CLIENT_REPO}: ${label} compile coverage::Supported package roots were found under ${root}, but no native build, check, or test command ran"
+  fi
 }
 
 find_consumer_packages() {
@@ -332,8 +371,12 @@ lines.extend(["]", ""])
 PY
 }
 
+if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
+  return 0
+fi
+
 chmod +x "$ZED" "$HARDENER"
-if [[ ! -x "$ZED" || ! -f "$HARDENER" || ! -f "$SCHEMA" || ! -f "$TOOLCHAIN/tips.json" ]]; then
+if [[ ! -x "$ZED" || ! -f "$HARDENER" || ! -f "$SCHEMA" || ! -f "$INTERFACES_ARCHIVE" || ! -f "$TOOLCHAIN/tips.json" || ! -f "$TOOLCHAIN/SHA256SUMS" ]]; then
   echo "canonical toolchain artifact is incomplete" >&2
   exit 2
 fi
@@ -341,6 +384,21 @@ if [[ ! -d "$TARGET/.git" ]]; then
   echo "target checkout is missing at $TARGET" >&2
   exit 2
 fi
+(cd "$GITHUB_WORKSPACE" && sha256sum --check "toolchain/SHA256SUMS")
+python - "$TOOLCHAIN/tips.json" <<'PY'
+import json, re, sys
+value = json.load(open(sys.argv[1], encoding="utf-8"))
+revision = value.get("zedInterfaces", "")
+if not isinstance(revision, str) or re.fullmatch(r"[0-9a-f]{40}", revision) is None:
+    raise SystemExit("canonical toolchain is missing its immutable zed-interfaces revision")
+PY
+tar -tzf "$INTERFACES_ARCHIVE" >"$REPORT/zed-interfaces-archive.txt"
+if ! grep -Fxq 'src/rust/Cargo.toml' "$REPORT/zed-interfaces-archive.txt"; then
+  echo "canonical zed-interfaces artifact is missing src/rust/Cargo.toml" >&2
+  exit 2
+fi
+mkdir -p "$WORKSPACE_ROOT/zed-interfaces"
+tar -xzf "$INTERFACES_ARCHIVE" -C "$WORKSPACE_ROOT/zed-interfaces"
 
 json_lines "$DISCOVERY_ERRORS_JSON" >"$REPORT/discovery-errors.txt"
 json_lines "$DISCOVERY_WARNINGS_JSON" >"$REPORT/discovery-warnings.txt"

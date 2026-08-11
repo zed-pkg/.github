@@ -110,8 +110,12 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
           python-version: '3.12'
-      - name: Test fleet discovery and batch runner
-        run: python -m unittest -v tools/test_discover_clients_fleet.py tools/test_run_clients_batch.py
+      - name: Test fleet controller
+        run: >-
+          python -m unittest -v
+          tools/test_audit_harden_client.py
+          tools/test_discover_clients_fleet.py
+          tools/test_run_clients_batch.py
       - id: matrix
         name: Discover clients, paired test orgs, and Zed consumers
         shell: bash
@@ -187,6 +191,35 @@ jobs:
           python -m pip install --disable-pip-version-check tomlkit jsonschema
           python -m py_compile canonical/scripts/harden_client_contract.py
           python -m unittest -v canonical/tests/test_harden_client_contract.py
+      - name: Stage exact canonical interface contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          interfaces_sha="$(python - <<'PY'
+          import re
+          from pathlib import Path
+
+          lines = Path("canonical/.github/workflows/nix.yml").read_text(encoding="utf-8").splitlines()
+          for index, line in enumerate(lines):
+              if re.fullmatch(r"\s*repository:\s*zed-pkg/zed-interfaces\s*(?:#.*)?", line) is None:
+                  continue
+              for candidate in lines[index + 1:index + 9]:
+                  match = re.fullmatch(r"\s*ref:\s*['\"]?([0-9a-f]{40})['\"]?\s*(?:#.*)?", candidate)
+                  if match is not None:
+                      print(match.group(1))
+                      raise SystemExit(0)
+          raise SystemExit("canonical zed-clients workflow has no immutable zed-interfaces pin")
+          PY
+          )"
+          git init zed-interfaces-source
+          git -C zed-interfaces-source fetch --depth=1 \
+            https://github.com/zed-pkg/zed-interfaces.git "$interfaces_sha"
+          resolved_sha="$(git -C zed-interfaces-source rev-parse FETCH_HEAD)"
+          [[ "$resolved_sha" == "$interfaces_sha" ]]
+          git -C zed-interfaces-source archive --format=tar FETCH_HEAD | gzip -n >zed-interfaces.tar.gz
+          tar -tzf zed-interfaces.tar.gz >zed-interfaces-archive.txt
+          grep -Fx 'src/rust/Cargo.toml' zed-interfaces-archive.txt
+          printf '%s\n' "$interfaces_sha" >zed-interfaces.sha
       - name: Build Zed CLI from current tip
         run: cargo build --locked --release --manifest-path zed-cli/Cargo.toml
       - name: Resolve current-tip CLI package lock
@@ -267,8 +300,9 @@ jobs:
           cp zed-cli/target/release/zed toolchain/zed
           cp canonical/scripts/harden_client_contract.py toolchain/harden_client_contract.py
           cp canonical/schemas/client-api.schema.json toolchain/client-api.schema.json
+          cp zed-interfaces.tar.gz toolchain/zed-interfaces.tar.gz
           python - <<'PY'
-          import json, subprocess
+          import json, pathlib, subprocess
           def sha(path):
               return subprocess.check_output(["git", "-C", path, "rev-parse", "HEAD"], text=True).strip()
           value = {
@@ -276,6 +310,7 @@ jobs:
               "zedClients": sha("canonical"),
               "zedCli": sha("zed-cli"),
               "zedApiServer": sha("zed-api"),
+              "zedInterfaces": pathlib.Path("zed-interfaces.sha").read_text(encoding="utf-8").strip(),
           }
           open("toolchain/tips.json", "w", encoding="utf-8").write(json.dumps(value, indent=2, sort_keys=True) + "\n")
           PY
@@ -382,13 +417,15 @@ jobs:
           packages=(
             nixpkgs#zig
             nixpkgs#gleam
-            nixpkgs#elixir
+            nixpkgs#beamPackages.erlang
+            nixpkgs#beamPackages.elixir
             nixpkgs#rebar3
             nixpkgs#dart
             nixpkgs#deno
             nixpkgs#bun
             nixpkgs#gradle
             nixpkgs#phpPackages.composer
+            nixpkgs#wasm-pack
           )
           if ! command -v swift >/dev/null 2>&1; then
             packages+=(nixpkgs#swift)
