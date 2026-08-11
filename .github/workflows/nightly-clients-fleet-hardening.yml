@@ -55,8 +55,35 @@ jobs:
             echo 'should_run=false' >>"$GITHUB_OUTPUT"
           fi
 
-  discover:
+  preflight:
     needs: gate
+    if: needs.gate.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify cross-organization credential before fan-out
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.ZED_FLEET_GH_TOKEN }}
+          APPLY_REQUESTED: ${{ github.event_name != 'workflow_dispatch' || inputs.apply == 'true' }}
+        run: |
+          set -euo pipefail
+          test -n "${GH_TOKEN:-}" || {
+            echo '::error title=Nightly clients fleet is not configured::ZED_FLEET_GH_TOKEN is missing.'
+            exit 78
+          }
+          gh api --silent repos/zed-pkg/zed-clients
+          if [[ "$APPLY_REQUESTED" == true ]]; then
+            can_push="$(gh api repos/zed-pkg/zed-clients --jq '.permissions.push // false')"
+            [[ "$can_push" == true ]] || {
+              echo '::error title=Nightly clients token is read-only::Scheduled/apply runs require push access for bounded hardening PRs.'
+              exit 77
+            }
+          fi
+          echo 'Cross-organization credential canary passed before discovery/toolchain fan-out.' >> "$GITHUB_STEP_SUMMARY"
+
+  discover:
+    needs: [gate, preflight]
     if: needs.gate.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -76,14 +103,6 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
           python-version: '3.12'
-      - name: Require cross-organization credential
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -n "${GITHUB_TOKEN:-}" || {
-            echo '::error::ZED_FLEET_GH_TOKEN is required for complete private cross-organization discovery and writes.'
-            exit 1
-          }
       - name: Test fleet discovery and batch runner
         run: python -m unittest -v tools/test_discover_clients_fleet.py tools/test_run_clients_batch.py
       - id: matrix
@@ -103,10 +122,12 @@ jobs:
           batch_matrix="$(tr -d '\n' < reports/discovery/batch-matrix.json)"
           count="$(python -c 'import json; print(len(json.load(open("reports/discovery/matrix.json"))["include"]))')"
           batch_count="$(python -c 'import json; print(len(json.load(open("reports/discovery/batch-matrix.json"))["include"]))')"
-          echo "matrix=$matrix" >>"$GITHUB_OUTPUT"
-          echo "batch_matrix=$batch_matrix" >>"$GITHUB_OUTPUT"
-          echo "count=$count" >>"$GITHUB_OUTPUT"
-          echo "batch_count=$batch_count" >>"$GITHUB_OUTPUT"
+          {
+            echo "matrix=$matrix"
+            echo "batch_matrix=$batch_matrix"
+            echo "count=$count"
+            echo "batch_count=$batch_count"
+          } >>"$GITHUB_OUTPUT"
           cat reports/discovery/summary.md >>"$GITHUB_STEP_SUMMARY"
       - name: Upload discovery report
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -117,7 +138,7 @@ jobs:
           retention-days: 30
 
   canonical-toolchain:
-    needs: gate
+    needs: [gate, preflight]
     if: needs.gate.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -278,6 +299,7 @@ jobs:
   report:
     needs:
       - gate
+      - preflight
       - discover
       - canonical-toolchain
       - harden
@@ -293,6 +315,7 @@ jobs:
       - name: Publish fleet summary
         shell: bash
         env:
+          PREFLIGHT_RESULT: ${{ needs.preflight.result }}
           HARDEN_RESULT: ${{ needs.harden.result }}
           DISCOVERY_COUNT: ${{ needs.discover.outputs.count }}
           BATCH_COUNT: ${{ needs.discover.outputs.batch_count }}
@@ -300,17 +323,28 @@ jobs:
           TOOLCHAIN_RESULT: ${{ needs.canonical-toolchain.result }}
         run: |
           set -euo pipefail
-          echo '# Nightly clients fleet hardening' >>"$GITHUB_STEP_SUMMARY"
-          echo >>"$GITHUB_STEP_SUMMARY"
-          echo "- discovered client repositories: **${DISCOVERY_COUNT:-0}**" >>"$GITHUB_STEP_SUMMARY"
-          echo "- bounded runner batches: **${BATCH_COUNT:-0}**" >>"$GITHUB_STEP_SUMMARY"
-          echo "- discovery result: **${DISCOVERY_RESULT:-not-run}**" >>"$GITHUB_STEP_SUMMARY"
-          echo "- canonical toolchain result: **${TOOLCHAIN_RESULT:-not-run}**" >>"$GITHUB_STEP_SUMMARY"
-          echo "- hardening matrix result: **${HARDEN_RESULT:-not-run}**" >>"$GITHUB_STEP_SUMMARY"
+          {
+            echo '# Nightly clients fleet hardening'
+            echo
+            echo "- protected preflight result: **${PREFLIGHT_RESULT:-not-run}**"
+          } >>"$GITHUB_STEP_SUMMARY"
+          if [[ "${PREFLIGHT_RESULT:-failure}" != success ]]; then
+            echo '- fan-out: **blocked before discovery and canonical toolchain execution**' >>"$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          {
+            echo "- discovered client repositories: **${DISCOVERY_COUNT:-0}**"
+            echo "- bounded runner batches: **${BATCH_COUNT:-0}**"
+            echo "- discovery result: **${DISCOVERY_RESULT:-not-run}**"
+            echo "- canonical toolchain result: **${TOOLCHAIN_RESULT:-not-run}**"
+            echo "- hardening matrix result: **${HARDEN_RESULT:-not-run}**"
+          } >>"$GITHUB_STEP_SUMMARY"
           if [[ -d reports ]]; then
             while IFS= read -r summary; do
-              echo >>"$GITHUB_STEP_SUMMARY"
-              cat "$summary" >>"$GITHUB_STEP_SUMMARY"
+              {
+                echo
+                cat "$summary"
+              } >>"$GITHUB_STEP_SUMMARY"
             done < <(find reports -name summary.md -type f | sort)
           fi
           [[ "${DISCOVERY_RESULT:-failure}" == success ]]
