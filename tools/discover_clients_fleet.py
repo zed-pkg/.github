@@ -12,6 +12,7 @@ import argparse
 import json
 import os
 import re
+import ssl
 import sys
 import tomllib
 import urllib.error
@@ -22,6 +23,29 @@ from pathlib import Path
 from typing import Any, Iterable
 
 API = "https://api.github.com"
+SYSTEM_CA_BUNDLES = (
+    Path("/etc/ssl/certs/ca-certificates.crt"),
+    Path("/etc/pki/tls/certs/ca-bundle.crt"),
+    Path("/etc/ssl/ca-bundle.pem"),
+    Path("/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem"),
+)
+
+
+def verified_ssl_context(ca_bundles: Iterable[Path] = SYSTEM_CA_BUNDLES) -> ssl.SSLContext:
+    """Build a verified TLS context that also trusts runner-managed CAs.
+
+    Python toolcache builds can use an OpenSSL CA path that differs from the
+    operating system trust store used by Git and GitHub CLI.  Merge common
+    system bundles into Python's default roots so managed runner certificates
+    are recognized while certificate and hostname verification remain enabled.
+    """
+
+    context = ssl.create_default_context()
+    for bundle in ca_bundles:
+        if bundle.is_file():
+            context.load_verify_locations(cafile=os.fspath(bundle))
+    return context
+
 
 class GitHubError(RuntimeError):
     def __init__(self, status: int, path: str, body: str) -> None:
@@ -31,11 +55,12 @@ class GitHubError(RuntimeError):
 
 
 class GitHub:
-    def __init__(self, token: str, api: str = API) -> None:
+    def __init__(self, token: str, api: str = API, ssl_context: ssl.SSLContext | None = None) -> None:
         if not token:
             raise ValueError("GITHUB_TOKEN is required")
         self.token = token
         self.api = api.rstrip("/")
+        self.ssl_context = ssl_context if ssl_context is not None else verified_ssl_context()
 
     def get(self, path: str) -> Any:
         request = urllib.request.Request(
@@ -48,7 +73,7 @@ class GitHub:
             },
         )
         try:
-            with urllib.request.urlopen(request, timeout=45) as response:
+            with urllib.request.urlopen(request, timeout=45, context=self.ssl_context) as response:
                 return json.load(response)
         except urllib.error.HTTPError as error:
             body = error.read().decode("utf-8", "replace")

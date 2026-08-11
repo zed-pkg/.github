@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import io
 import importlib.util
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 MODULE_PATH = Path(__file__).with_name("discover_clients_fleet.py")
 spec = importlib.util.spec_from_file_location("discover_clients_fleet", MODULE_PATH)
@@ -22,6 +25,35 @@ class FakeGitHub:
 
 
 class DiscoveryTests(unittest.TestCase):
+    def test_verified_ssl_context_adds_system_bundle_without_weakening_tls(self) -> None:
+        context = mock.Mock()
+        context.check_hostname = True
+        context.verify_mode = module.ssl.CERT_REQUIRED
+
+        with tempfile.TemporaryDirectory() as directory:
+            bundle = Path(directory, "runner-ca-bundle.pem")
+            bundle.write_text("test certificate bundle", encoding="utf-8")
+            missing = Path(directory, "missing.pem")
+            with mock.patch.object(module.ssl, "create_default_context", return_value=context):
+                result = module.verified_ssl_context((missing, bundle))
+
+        self.assertIs(result, context)
+        context.load_verify_locations.assert_called_once_with(cafile=str(bundle))
+        self.assertTrue(context.check_hostname)
+        self.assertEqual(context.verify_mode, module.ssl.CERT_REQUIRED)
+
+    def test_github_requests_use_the_verified_ssl_context(self) -> None:
+        context = mock.sentinel.ssl_context
+        response = io.BytesIO(b'{"ok": true}')
+        client = module.GitHub("test-token", ssl_context=context)
+
+        with mock.patch.object(module.urllib.request, "urlopen", return_value=response) as urlopen:
+            self.assertEqual(client.get("/octocat"), {"ok": True})
+
+        _, kwargs = urlopen.call_args
+        self.assertEqual(kwargs["timeout"], 45)
+        self.assertIs(kwargs["context"], context)
+
     def test_client_filter_is_exact_and_active(self) -> None:
         repos = [
             {"name": "alpha-clients", "full_name": "acme/alpha-clients", "default_branch": "dev"},
