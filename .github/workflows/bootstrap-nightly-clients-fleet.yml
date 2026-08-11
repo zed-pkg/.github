@@ -53,14 +53,13 @@ jobs:
           assert set(value['on']) == {'schedule', 'workflow_dispatch'}
           assert set(value['jobs']) == {'gate', 'discover', 'canonical-toolchain', 'harden', 'report'}
           PY
-      - name: Replace bootstrap payload with readable source
+      - name: Publish readable non-workflow source
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf .bootstrap
-          rm .github/workflows/bootstrap-nightly-clients-fleet.yml
+          rm -f .github/workflows/nightly-clients-fleet-hardening.yml
           git config user.name 'zed-pkg automation'
           git config user.email 'zed-pkg-automation@users.noreply.github.com'
-          git add -A
-          git commit -m 'feat: schedule nightly clients fleet hardening'
+          git add docs tools
+          git commit -m 'feat: add nightly clients fleet controller source'
           git push origin HEAD:${{ github.event.pull_request.head.ref }}
