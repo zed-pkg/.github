@@ -94,7 +94,6 @@ class DiscoveryTests(unittest.TestCase):
         ]
         self.assertEqual(module.likely_test_repos(repos, client), ["fiducia-cloud-test/fiducia-e2e"])
 
-
     def test_explicit_ca_bundle_is_loaded_by_verified_context(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             bundle = Path(temporary) / "runner-ca.pem"
