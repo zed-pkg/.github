@@ -53,6 +53,15 @@ just env-enc prod
 just env-lock
 ```
 
+## Recovery recipient
+
+The bootstrap creates one age recipient whose private identity is held in the
+`SOPS_AGE_KEY` Actions secret. Before treating the ciphertext as an independent
+disaster-recovery copy, add a second age or KMS recipient controlled outside this
+repository's Actions-secret store, update both exact creation rules in
+`.sops.yaml`, and run `sops updatekeys env/enc/prod.env.enc`. Never commit either
+private identity.
+
 ## Rotation
 
 1. Create a replacement GitHub credential with the minimum repository and
