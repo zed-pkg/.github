@@ -236,7 +236,7 @@ jobs:
             --home "$ZED_HOME" \
             install \
             --install-mode copy
-          if ! git diff --quiet -- .zpkg.lock; then
+          if [[ -n "$(git status --porcelain -- .zpkg.lock)" ]]; then
             echo '::notice title=Current-tip CLI lock drift::The resolver updated zed-cli/.zpkg.lock; an apply run will open or refresh its bounded lock PR.'
           fi
       - name: Check Zed API server from current tip
@@ -256,7 +256,7 @@ jobs:
             --home "$ZED_HOME" \
             install \
             --install-mode copy
-          if ! git diff --quiet -- .zpkg.lock; then
+          if [[ -n "$(git status --porcelain -- .zpkg.lock)" ]]; then
             echo '::notice title=Canonical Zed lock drift::The current-tip resolver updated .zpkg.lock; the fleet hardener will include it in the bounded client PR.'
           fi
       - name: Validate canonical CLI/API package formats
@@ -331,7 +331,7 @@ jobs:
           GH_TOKEN: ${{ secrets.ZED_FLEET_GH_TOKEN }}
         run: |
           set -euo pipefail
-          if git diff --quiet -- .zpkg.lock; then
+          if [[ -z "$(git status --porcelain -- .zpkg.lock)" ]]; then
             exit 0
           fi
           branch='automation/nightly-zed-lock'
