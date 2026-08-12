@@ -45,3 +45,12 @@ env-verify:
 env-lock:
     mkdir -p env/dec
     nix develop --command ores-sops lock
+
+# Install ZED_FLEET_GH_TOKEN and run a non-applying canary by default.
+fleet-secret-set apply="false":
+    bash tools/set-zed-fleet-secret.sh --apply "{{apply}}"
+
+# Keyless validation for the secret bootstrap helper.
+fleet-secret-test:
+    bash -n tools/set-zed-fleet-secret.sh
+    python -m unittest -v tools/test_set_zed_fleet_secret.py
