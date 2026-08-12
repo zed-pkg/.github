@@ -115,6 +115,7 @@ class SetZedFleetSecretTests(unittest.TestCase):
                     'EXPECTED_FLEET_TOKEN': TOKEN,
                     'GH_STUB_LOG': str(log),
                     'GH_STUB_STATE': str(root / 'state'),
+                    'GITHUB_ACTIONS': 'true',
                 }
             )
             completed = subprocess.run(
@@ -130,13 +131,16 @@ class SetZedFleetSecretTests(unittest.TestCase):
             return completed
 
     def assert_token_absent(self, completed: subprocess.CompletedProcess[str]) -> None:
-        combined = completed.stdout + completed.stderr + getattr(completed, 'gh_log', '')
+        mask_command = f'::add-mask::{TOKEN}\n'
+        observable_stdout = completed.stdout.replace(mask_command, '')
+        combined = observable_stdout + completed.stderr + getattr(completed, 'gh_log', '')
         self.assertNotIn(TOKEN, combined)
 
     def test_sets_and_verifies_without_dispatch(self) -> None:
         completed = self.run_script(['--apply', 'false', '--no-run'])
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertIn('Verified repository Actions secret name: ZED_FLEET_GH_TOKEN', completed.stdout)
+        self.assertIn(f'::add-mask::{TOKEN}\n', completed.stdout)
         self.assertNotIn('workflow run', getattr(completed, 'gh_log', ''))
         self.assert_token_absent(completed)
 
@@ -150,6 +154,7 @@ class SetZedFleetSecretTests(unittest.TestCase):
         self.assertIn('apply=false', log)
         self.assertIn('orgs=zed-pkg', log)
         self.assertIn('Workflow run: https://github.example.invalid/actions/runs/101', completed.stdout)
+        self.assertIn(f'::add-mask::{TOKEN}\n', completed.stdout)
         self.assert_token_absent(completed)
 
     def test_rejects_invalid_apply_value_before_secret_access(self) -> None:
