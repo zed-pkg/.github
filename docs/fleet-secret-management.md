@@ -53,6 +53,50 @@ just env-enc prod
 just env-lock
 ```
 
+## Actions-secret bootstrap and canary
+
+`tools/set-zed-fleet-secret.sh` installs the candidate credential through standard
+input to `gh secret set`, verifies only the resulting secret name, dispatches the
+nightly workflow with `apply=false` by default, resolves the newly created run,
+and watches it through terminal completion.
+
+Use the Just recipe from a network-enabled administrative environment:
+
+```sh
+just fleet-secret-set false
+```
+
+The helper reads `ZED_FLEET_GH_TOKEN` from the environment or, preferably for
+interactive use, from a hidden terminal prompt. The value is never written to
+disk or passed as a command-line argument. Shell xtrace is rejected.
+
+A separate repository-administration credential may be supplied as
+`ZED_FLEET_BOOTSTRAP_GH_TOKEN` (or `GH_TOKEN`). This separation is recommended:
+the bootstrap credential needs permission to manage Actions secrets in
+`zed-pkg/.github`, while the installed fleet credential should contain only the
+cross-organization discovery, checkout, branch, pull-request, and issue access
+required by the controller. When a separate bootstrap credential is omitted, the
+candidate fleet credential is used for both operations for backwards compatibility.
+
+Useful bounded modes:
+
+```sh
+# Set and verify the Actions secret without starting a workflow.
+bash tools/set-zed-fleet-secret.sh --apply false --no-run
+
+# Dispatch the read-only canary but return after its run is visible.
+bash tools/set-zed-fleet-secret.sh --apply false --no-watch
+
+# Restrict discovery to a small organization canary.
+bash tools/set-zed-fleet-secret.sh --apply false --orgs zed-pkg
+```
+
+Run the keyless helper tests with:
+
+```sh
+just fleet-secret-test
+```
+
 ## Recovery recipient
 
 The bootstrap creates one age recipient whose private identity is held in the
@@ -67,10 +111,14 @@ private identity.
 1. Create a replacement GitHub credential with the minimum repository and
    organization access required by discovery, checkout, PR creation, and issue
    updates.
-2. Update `ZED_FLEET_GH_TOKEN` in repository Actions secrets.
-3. Run `just env-edit prod` and replace the encrypted dotenv value.
-4. Run a manual nightly workflow with `apply=false` before enabling writes.
-5. Revoke the previous credential after the canary succeeds.
+2. Replace the value in the encrypted maintenance copy with `just env-edit prod`
+   and verify it with `just env-verify`.
+3. Install the new repository Actions secret with
+   `just fleet-secret-set false`; this performs the non-applying canary and waits
+   for its terminal result.
+4. Inspect the canary artifact and exact repository accounting before enabling an
+   applying run.
+5. Revoke the previous credential only after the canary succeeds.
 
 Never place token values, age private identities, decrypted dotenv files, or
 service-account material in Git, pull-request text, issues, Linear, logs, caches,
