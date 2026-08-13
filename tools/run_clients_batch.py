@@ -16,6 +16,23 @@ def compact(value: Any) -> str:
     return json.dumps(value, separators=(",", ":"), ensure_ascii=False)
 
 
+def clone_command(repo: str, destination: Path, *, branch: str | None = None) -> list[str]:
+    """Build the fleet clone command, including exact gitlink materialization.
+
+    Client repositories may keep generated/native bindings in git submodules.  A
+    plain clone leaves those gitlinks as empty directories, which turns a
+    checkout problem into misleading Rust/Dart/package failures later in the
+    audit.  Recurse at clone time so every compile sees the exact submodule
+    commits recorded by the audited branch tip.
+    """
+
+    command = ["gh", "repo", "clone", repo, str(destination), "--"]
+    if branch:
+        command.extend(["--branch", branch, "--no-single-branch"])
+    command.append("--recurse-submodules")
+    return command
+
+
 def client_environment(base: dict[str, str], client: dict[str, Any]) -> dict[str, str]:
     env = dict(base)
     required = (
@@ -65,7 +82,7 @@ def write_clone_failure(workspace: Path, client: dict[str, Any], result: subproc
     summary = (
         f"# {client.get('repo', 'unknown')} nightly hardening\n\n"
         "- final status: **failed**\n"
-        f"- blocker: target repository clone failed with exit code {result.returncode}\n"
+        f"- blocker: target repository or recorded git submodule checkout failed with exit code {result.returncode}\n"
         f"- run: {run_url}\n"
     )
     (report / "summary.md").write_text(summary, encoding="utf-8")
@@ -91,17 +108,11 @@ def main() -> int:
         (fleet / "consumers").mkdir(parents=True, exist_ok=True)
         target = fleet / "target"
         clone = subprocess.run(
-            [
-                "gh",
-                "repo",
-                "clone",
+            clone_command(
                 repo,
-                str(target),
-                "--",
-                "--branch",
-                str(client.get("default_branch") or "main"),
-                "--no-single-branch",
-            ],
+                target,
+                branch=str(client.get("default_branch") or "main"),
+            ),
             text=True,
             capture_output=True,
             check=False,
