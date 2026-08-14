@@ -39,7 +39,7 @@ STATUS=0
 CHANGED=false
 
 json_lines() {
-  python - "$1" <<'PY'
+  python3 - "$1" <<'PY'
 import json, sys
 value = json.loads(sys.argv[1])
 if not isinstance(value, list):
@@ -50,7 +50,7 @@ PY
 }
 
 json_count() {
-  python - "$1" <<'PY'
+  python3 - "$1" <<'PY'
 import json, sys
 value = json.loads(sys.argv[1])
 print(len(value) if isinstance(value, list) else 0)
@@ -126,7 +126,7 @@ run_native_tests() {
          -o -name build.gradle -o -name build.gradle.kts -o -name settings.gradle -o -name settings.gradle.kts \
          -o -name Package.swift -o -name composer.json -o -name '*.gemspec' -o -name '*.csproj' \
          -o -name '*.sln' -o -name .zpkg.toml \) \
-      -printf '%h\n' | sort -u
+      -exec dirname {} \; | sort -u
   ) >"$roots_file"
 
   if [[ ! -s "$roots_file" ]]; then
@@ -142,7 +142,7 @@ run_native_tests() {
     safe="$(safe_name "$relative")"
 
     if [[ -f "$directory/.zpkg.toml" ]]; then
-      zed_test_script="$(python -c 'import sys,tomllib,pathlib; value=tomllib.loads(pathlib.Path(sys.argv[1]).read_text()); scripts=value.get("scripts",{}); print("test" if isinstance(scripts,dict) and isinstance(scripts.get("test"),str) and scripts["test"].strip() else "")' "$directory/.zpkg.toml" 2>/dev/null || true)"
+      zed_test_script="$(python3 -c 'import sys,tomllib,pathlib; value=tomllib.loads(pathlib.Path(sys.argv[1]).read_text()); scripts=value.get("scripts",{}); print("test" if isinstance(scripts,dict) and isinstance(scripts.get("test"),str) and scripts["test"].strip() else "")' "$directory/.zpkg.toml" 2>/dev/null || true)"
       if [[ -n "$zed_test_script" ]]; then
         run_native_logged "${label}-${safe}-zed-script-test" bash -lc "cd '$directory' && '$ZED' run test"
       fi
@@ -228,10 +228,10 @@ NODE
 
     if [[ -f "$directory/pyproject.toml" ]]; then
       run_native_logged "${label}-${safe}-python-build" bash -lc \
-        "cd '$directory' && (python -m pip install --disable-pip-version-check -e '.[test]' || python -m pip install --disable-pip-version-check -e .) && python -m compileall -q ."
+        "cd '$directory' && (python3 -m pip install --disable-pip-version-check -e '.[test]' || python3 -m pip install --disable-pip-version-check -e .) && python3 -m compileall -q ."
       if [[ -d "$directory/tests" || -d "$directory/test" || -f "$directory/pytest.ini" ]] || \
          find "$directory" -maxdepth 1 -type f \( -name 'test_*.py' -o -name '*_test.py' \) -print -quit | grep -q .; then
-        run_native_logged "${label}-${safe}-python-test" bash -lc "cd '$directory' && python -m pytest"
+        run_native_logged "${label}-${safe}-python-test" bash -lc "cd '$directory' && python3 -m pytest"
       fi
     fi
 
@@ -265,7 +265,7 @@ NODE
 
     if find "$directory" -maxdepth 1 -type f \( -name '*.sln' -o -name '*.csproj' \) -print -quit | grep -q .; then
       local dotnet_target dotnet_target_quoted
-      dotnet_target="$(python - "$directory" <<'PY'
+      dotnet_target="$(python3 - "$directory" <<'PY'
 from pathlib import Path
 import sys
 root = Path(sys.argv[1])
@@ -292,7 +292,7 @@ PY
       run_native_logged "${label}-${safe}-composer" bash -lc \
         "cd '$directory' && composer validate --no-check-publish && composer install --no-interaction --prefer-dist --no-progress && find . -maxdepth 6 -type f -name '*.php' -not -path './vendor/*' -print0 | xargs -0 -r -n1 php -l"
       local composer_has_test
-      composer_has_test="$(python - "$directory/composer.json" <<'PY'
+      composer_has_test="$(python3 - "$directory/composer.json" <<'PY'
 import json, sys
 value = json.load(open(sys.argv[1], encoding="utf-8"))
 scripts = value.get("scripts", {})
@@ -329,7 +329,7 @@ PY
 
 find_consumer_packages() {
   local repository_root="$1"
-  python - "$repository_root" "$ZED_COORDINATE" "$CLIENT_REPO" <<'PY'
+  python3 - "$repository_root" "$ZED_COORDINATE" "$CLIENT_REPO" <<'PY'
 from __future__ import annotations
 import sys, tomllib
 from pathlib import Path
@@ -357,7 +357,7 @@ PY
 }
 
 write_workspace_manifest() {
-  python - "$WORKSPACE_ROOT" "$MEMBERS_FILE" "$CLIENT_PREFIX" <<'PY'
+  python3 - "$WORKSPACE_ROOT" "$MEMBERS_FILE" "$CLIENT_PREFIX" <<'PY'
 from __future__ import annotations
 import json, re, sys
 from pathlib import Path
@@ -403,7 +403,7 @@ if [[ ! -d "$TARGET/.git" ]]; then
   exit 2
 fi
 (cd "$GITHUB_WORKSPACE" && sha256sum --check "toolchain/SHA256SUMS")
-python - "$TOOLCHAIN/tips.json" <<'PY'
+python3 - "$TOOLCHAIN/tips.json" <<'PY'
 import json, re, sys
 value = json.load(open(sys.argv[1], encoding="utf-8"))
 revision = value.get("zedInterfaces", "")
@@ -440,7 +440,7 @@ git -C "$TARGET" config user.email "zed-pkg-automation@users.noreply.github.com"
 git -C "$TARGET" fetch origin "$DEFAULT_BRANCH" "$BRANCH" || git -C "$TARGET" fetch origin "$DEFAULT_BRANCH"
 git -C "$TARGET" checkout -B "$BRANCH" "origin/$DEFAULT_BRANCH"
 
-run_logged hardener-write python "$HARDENER" \
+run_logged hardener-write python3 "$HARDENER" \
   --root "$TARGET" \
   --schema "$SCHEMA" \
   --org "$ZED_ORG" \
@@ -448,7 +448,7 @@ run_logged hardener-write python "$HARDENER" \
   --prefix "$CLIENT_PREFIX" \
   --write \
   --output "$REPORT/hardener-write.json"
-run_logged hardener-check python "$HARDENER" \
+run_logged hardener-check python3 "$HARDENER" \
   --root "$TARGET" \
   --schema "$SCHEMA" \
   --org "$ZED_ORG" \
@@ -456,7 +456,7 @@ run_logged hardener-check python "$HARDENER" \
   --prefix "$CLIENT_PREFIX" \
   --check \
   --output "$REPORT/hardener-check.json"
-run_logged normalize-zed-repository-url python - "$TARGET/.zpkg.toml" "$CLIENT_REPO" <<'PY'
+run_logged normalize-zed-repository-url python3 - "$TARGET/.zpkg.toml" "$CLIENT_REPO" <<'PY'
 from pathlib import Path
 import sys, tomlkit
 path = Path(sys.argv[1])
@@ -493,7 +493,7 @@ while IFS= read -r consumer; do
   if [[ ! -d "$destination/.git" ]]; then
     continue
   fi
-  printf '%s\t%s\n' "$consumer" "$(python - "$WORKSPACE_ROOT" "$destination" <<'PY'
+  printf '%s\t%s\n' "$consumer" "$(python3 - "$WORKSPACE_ROOT" "$destination" <<'PY'
 from pathlib import Path
 import sys
 print(Path(sys.argv[2]).resolve().relative_to(Path(sys.argv[1]).resolve()).as_posix())
@@ -504,7 +504,7 @@ PY
   while IFS= read -r package_dir; do
     [[ -n "$package_dir" ]] || continue
     found=$((found + 1))
-    relative="$(python - "$WORKSPACE_ROOT" "$package_dir" <<'PY'
+    relative="$(python3 - "$WORKSPACE_ROOT" "$package_dir" <<'PY'
 from pathlib import Path
 import sys
 print(Path(sys.argv[2]).resolve().relative_to(Path(sys.argv[1]).resolve()).as_posix())
