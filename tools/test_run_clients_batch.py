@@ -40,6 +40,19 @@ class BatchRunnerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "zed_coordinate"):
             module.client_environment({}, {"repo": "acme/a-clients"})
 
+    def test_target_clone_materializes_recorded_gitlinks(self) -> None:
+        command = module.clone_command(
+            "opto-sync/opto-sync-clients",
+            Path("fleet-workspace/target"),
+            branch="main",
+        )
+        self.assertEqual(command[:5], ["gh", "repo", "clone", "opto-sync/opto-sync-clients", "fleet-workspace/target"])
+        self.assertIn("--branch", command)
+        self.assertIn("main", command)
+        self.assertIn("--no-single-branch", command)
+        self.assertIn("--recurse-submodules", command)
+        self.assertGreater(command.index("--recurse-submodules"), command.index("--"))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
