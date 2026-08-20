@@ -1,0 +1,63 @@
+name: nightly clients controller contract
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/nightly-clients-controller-contract.yml'
+      - '.github/workflows/nightly-clients-fleet-hardening.yml'
+      - 'tools/audit_harden_client.sh'
+      - 'tools/run_clients_batch.py'
+      - 'tools/test_audit_harden_client.py'
+      - 'tools/test_run_clients_batch.py'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/nightly-clients-controller-contract.yml'
+      - '.github/workflows/nightly-clients-fleet-hardening.yml'
+      - 'tools/audit_harden_client.sh'
+      - 'tools/run_clients_batch.py'
+      - 'tools/test_audit_harden_client.py'
+      - 'tools/test_run_clients_batch.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-clients-controller-contract-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    name: branch preservation and validation gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Validate controller syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n tools/audit_harden_client.sh
+          python3 -m py_compile \
+            tools/run_clients_batch.py \
+            tools/test_audit_harden_client.py \
+            tools/test_run_clients_batch.py
+
+      - name: Run executable controller contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest -v \
+            tools/test_audit_harden_client.py \
+            tools/test_run_clients_batch.py
+
+      - name: Reject malformed changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check

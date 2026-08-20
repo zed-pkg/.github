@@ -437,8 +437,16 @@ fi
 
 git -C "$TARGET" config user.name "zed-pkg automation"
 git -C "$TARGET" config user.email "zed-pkg-automation@users.noreply.github.com"
-git -C "$TARGET" fetch origin "$DEFAULT_BRANCH" "$BRANCH" || git -C "$TARGET" fetch origin "$DEFAULT_BRANCH"
-git -C "$TARGET" checkout -B "$BRANCH" "origin/$DEFAULT_BRANCH"
+git -C "$TARGET" fetch origin "$DEFAULT_BRANCH"
+if git -C "$TARGET" fetch origin "$BRANCH"; then
+  git -C "$TARGET" checkout -B "$BRANCH" "origin/$BRANCH"
+  if ! git -C "$TARGET" merge-base --is-ancestor "origin/$DEFAULT_BRANCH" HEAD; then
+    STATUS=1
+    echo "::error title=${CLIENT_REPO} automation branch diverged::Preserving ${BRANCH}; reconcile it with ${DEFAULT_BRANCH} before the fleet hardener can write."
+  fi
+else
+  git -C "$TARGET" checkout -B "$BRANCH" "origin/$DEFAULT_BRANCH"
+fi
 
 run_logged hardener-write python3 "$HARDENER" \
   --root "$TARGET" \
@@ -562,7 +570,7 @@ RUN_URL="${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-zed-pkg/.
 cat "$REPORT/summary.md" >>"${GITHUB_STEP_SUMMARY:-/dev/null}"
 
 PR_NUMBER=""
-if [[ "$CHANGED" == true && "$APPLY" == true ]]; then
+if [[ "$CHANGED" == true && "$APPLY" == true && "$STATUS" -eq 0 ]]; then
   if ! git -C "$TARGET" push --force-with-lease origin "HEAD:$BRANCH" >"$REPORT/git-push.log" 2>&1; then
     cat "$REPORT/git-push.log"
     STATUS=1
@@ -592,6 +600,8 @@ if [[ "$CHANGED" == true && "$APPLY" == true ]]; then
       gh pr comment "$PR_NUMBER" --repo "$CLIENT_REPO" --body-file "$REPORT/summary.md" || true
     fi
   fi
+elif [[ "$CHANGED" == true && "$APPLY" == true ]]; then
+  echo "::error title=${CLIENT_REPO} unsafe branch refresh blocked::Generated changes were not pushed because validation failed; preserve the existing review branch and repair the evidenced root cause first."
 elif [[ "$CHANGED" == true ]]; then
   echo "::notice title=${CLIENT_REPO} dry run::Changes were generated but APPLY is false"
 fi

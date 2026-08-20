@@ -141,5 +141,31 @@ version = "0.1.0"
         self.assertIn("consumer-fixture-._ruby-ruby-test", commands)
 
 
+    def test_existing_automation_branch_is_not_reset_to_default(self) -> None:
+        source = AUDIT_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn(
+            'checkout -B "$BRANCH" "origin/$BRANCH"',
+            source,
+        )
+        self.assertIn(
+            'merge-base --is-ancestor "origin/$DEFAULT_BRANCH" HEAD',
+            source,
+        )
+        self.assertNotIn(
+            'fetch origin "$DEFAULT_BRANCH" "$BRANCH" || git -C "$TARGET" fetch origin "$DEFAULT_BRANCH"',
+            source,
+        )
+
+    def test_failed_validation_cannot_push_generated_changes(self) -> None:
+        source = AUDIT_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn(
+            '[[ "$CHANGED" == true && "$APPLY" == true && "$STATUS" -eq 0 ]]',
+            source,
+        )
+        self.assertIn("unsafe branch refresh blocked", source)
+
+
 if __name__ == "__main__":
     unittest.main()
