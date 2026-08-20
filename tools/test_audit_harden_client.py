@@ -166,6 +166,15 @@ version = "0.1.0"
         )
         self.assertIn("unsafe branch refresh blocked", source)
 
+    def test_automation_push_is_fast_forward_only(self) -> None:
+        source = AUDIT_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn(
+            'git -C "$TARGET" push origin "HEAD:$BRANCH"',
+            source,
+        )
+        self.assertNotIn("push --force", source)
+
 
 if __name__ == "__main__":
     unittest.main()

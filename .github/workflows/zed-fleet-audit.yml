@@ -12,12 +12,14 @@ on:
   pull_request:
     paths:
       - tools/zed_fleet_audit.py
+      - tools/test_zed_fleet_audit.py
       - docs/zed-fleet-contract.md
       - .github/workflows/zed-fleet-audit.yml
   push:
     branches: [main]
     paths:
       - tools/zed_fleet_audit.py
+      - tools/test_zed_fleet_audit.py
       - docs/zed-fleet-contract.md
       - .github/workflows/zed-fleet-audit.yml
 
@@ -36,6 +38,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+      - name: Test repository role selection
+        run: python3 -m unittest -v tools/test_zed_fleet_audit.py
       - name: Audit real repository contents
         id: audit
         shell: bash

@@ -1,10 +1,10 @@
 # Nightly `*-clients` fleet hardening
 
-The organization-wide controller lives in `zed-pkg/.github` and runs at **3:00 AM
-America/Chicago**. GitHub Actions cron is UTC-only, so the workflow registers both
-08:00 UTC and 09:00 UTC and admits only the trigger whose Chicago local hour is
-03. This keeps the schedule correct through CST/CDT transitions without manual
-edits.
+The organization-wide controller lives in `zed-pkg/.github` and runs at **3:17 AM
+America/Chicago**. The schedule declares that IANA timezone directly, keeping the
+wall-clock time correct through CST/CDT transitions without a duplicate UTC
+trigger. The seventeen-minute offset also avoids GitHub's busiest top-of-hour
+dispatch window.
 
 ## Scope and fail-closed rules
 
@@ -49,6 +49,10 @@ but do not suppress the immutable toolchain artifact or the independent client
 and consumer fan-out; this keeps one registry-plane blocker from hiding the
 rest of the fleet evidence.
 
+Checkout and artifact transfer actions are pinned to immutable, Node 24-compatible
+revisions so runner deprecation warnings cannot silently become future admission
+failures.
+
 The hardener preserves existing implementation files and guarantees a standard
 20-target matrix under `clients/` (hard floor: 15): C, C++, Zig, WebAssembly,
 Gleam, Erlang, Elixir, Dart, Rust, Java, Go, Python, Ruby, PHP, Kotlin, Swift,
@@ -74,7 +78,9 @@ with discoverable package metadata but no native build, check, or test command
 is a hard coverage failure rather than an implicit pass.
 
 When the hardener changes a client repository, the job updates the stable branch
-`automation/nightly-client-hardening` and creates or refreshes a pull request.
+`automation/nightly-client-hardening` with an ordinary fast-forward-only push and
+creates or refreshes a pull request. A concurrent or divergent branch update
+fails closed and is preserved for review rather than being force-pushed.
 Failures create or update a single deduplicated GitHub issue in that client
 repository; a later successful run closes it. Per-repository reports and the
 fleet summary are retained as Actions artifacts for 30 days.
