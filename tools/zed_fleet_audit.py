@@ -146,7 +146,13 @@ def finding(severity: str, code: str, message: str) -> dict:
 def audit_family(gh: GitHub, org: str, repos: set[str], clients: str) -> dict:
     prefix = clients[:-8]
     interfaces = first(repos, f"{prefix}-interfaces", f"{prefix}-interface")
-    library = first(repos, f"{prefix}-lib", f"{prefix}-libs", f"{prefix}-library")
+    library = first(
+        repos,
+        f"{prefix}-lib-core",
+        f"{prefix}-lib",
+        f"{prefix}-libs",
+        f"{prefix}-library",
+    )
     cli = first(repos, f"{prefix}-cli", f"{prefix}-cli.rs")
     monorepo = first(repos, f"{prefix}-monorepo")
     findings = []
