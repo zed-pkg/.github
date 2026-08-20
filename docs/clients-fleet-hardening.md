@@ -49,6 +49,10 @@ but do not suppress the immutable toolchain artifact or the independent client
 and consumer fan-out; this keeps one registry-plane blocker from hiding the
 rest of the fleet evidence.
 
+Checkout and artifact transfer actions are pinned to immutable, Node 24-compatible
+revisions so runner deprecation warnings cannot silently become future admission
+failures.
+
 The hardener preserves existing implementation files and guarantees a standard
 20-target matrix under `clients/` (hard floor: 15): C, C++, Zig, WebAssembly,
 Gleam, Erlang, Elixir, Dart, Rust, Java, Go, Python, Ruby, PHP, Kotlin, Swift,
