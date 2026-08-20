@@ -2,10 +2,10 @@ name: Nightly clients fleet hardening
 
 on:
   schedule:
-    # GitHub cron is UTC. Run both offsets and gate on America/Chicago = 03:00,
-    # which remains correct across CST/CDT transitions.
-    - cron: '0 8 * * *'
-    - cron: '0 9 * * *'
+    # Avoid the top-of-hour load spike while preserving Chicago wall-clock time
+    # across CST/CDT transitions without a duplicate UTC trigger.
+    - cron: '17 3 * * *'
+      timezone: America/Chicago
   workflow_dispatch:
     inputs:
       orgs:
@@ -34,30 +34,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  gate:
-    runs-on: ubuntu-latest
-    outputs:
-      should_run: ${{ steps.clock.outputs.should_run }}
-    steps:
-      - id: clock
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ "${GITHUB_EVENT_NAME}" != schedule ]]; then
-            echo 'should_run=true' >>"$GITHUB_OUTPUT"
-            exit 0
-          fi
-          local_hour="$(TZ=America/Chicago date +%H)"
-          if [[ "$local_hour" == 03 ]]; then
-            echo 'should_run=true' >>"$GITHUB_OUTPUT"
-          else
-            echo "Skipping duplicate UTC trigger; America/Chicago hour is $local_hour"
-            echo 'should_run=false' >>"$GITHUB_OUTPUT"
-          fi
-
   preflight:
-    needs: gate
-    if: needs.gate.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -90,8 +67,7 @@ jobs:
           echo 'Cross-organization credential canary passed before discovery/toolchain fan-out.' >> "$GITHUB_STEP_SUMMARY"
 
   discover:
-    needs: [gate, preflight]
-    if: needs.gate.outputs.should_run == 'true'
+    needs: preflight
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
@@ -149,8 +125,7 @@ jobs:
           retention-days: 30
 
   canonical-toolchain:
-    needs: [gate, preflight]
-    if: needs.gate.outputs.should_run == 'true'
+    needs: preflight
     runs-on: ubuntu-latest
     timeout-minutes: 90
     outputs:
@@ -335,14 +310,29 @@ jobs:
             exit 0
           fi
           branch='automation/nightly-zed-lock'
-          git config user.name 'zed-pkg automation'
-          git config user.email 'zed-pkg-automation@users.noreply.github.com'
+          source_lock="$PWD/.zpkg.lock"
+          target="$RUNNER_TEMP/zed-cli-lock-branch"
           gh auth setup-git
-          git fetch origin "refs/heads/$branch:refs/remotes/origin/$branch" || true
-          git checkout -B "$branch"
-          git add .zpkg.lock
-          git commit -m 'chore: refresh current-tip zed package lock'
-          git push --force-with-lease origin "HEAD:$branch"
+          gh repo clone zed-pkg/zed-cli "$target" -- --filter=blob:none --no-checkout
+          git -C "$target" fetch origin main
+          if git -C "$target" fetch origin "$branch"; then
+            git -C "$target" checkout -B "$branch" "origin/$branch"
+            if ! git -C "$target" merge-base --is-ancestor origin/main HEAD; then
+              echo "::error title=Zed CLI lock branch diverged::Preserving $branch; reconcile it with main before the nightly controller can write."
+              exit 1
+            fi
+          else
+            git -C "$target" checkout -B "$branch" origin/main
+          fi
+          cp "$source_lock" "$target/.zpkg.lock"
+          if [[ -z "$(git -C "$target" status --porcelain -- .zpkg.lock)" ]]; then
+            exit 0
+          fi
+          git -C "$target" config user.name 'zed-pkg automation'
+          git -C "$target" config user.email 'zed-pkg-automation@users.noreply.github.com'
+          git -C "$target" add .zpkg.lock
+          git -C "$target" commit -m 'chore: refresh current-tip zed package lock'
+          git -C "$target" push origin "HEAD:$branch"
           body_file="$RUNNER_TEMP/zed-cli-lock-pr.md"
           cat >"$body_file" <<'EOF'
           The nightly clients fleet controller regenerated `.zpkg.lock` with the current `zed-cli` resolver and validated it with `zed validate --require-lock --json`.
@@ -362,10 +352,9 @@ jobs:
 
   harden:
     needs:
-      - gate
       - discover
       - canonical-toolchain
-    if: needs.gate.outputs.should_run == 'true' && needs.discover.outputs.count != '0'
+    if: needs.discover.outputs.count != '0'
     strategy:
       fail-fast: false
       max-parallel: 2
@@ -443,13 +432,13 @@ jobs:
 
   report:
     needs:
-      - gate
       - preflight
       - discover
       - canonical-toolchain
       - harden
-    if: always() && needs.gate.outputs.should_run == 'true'
+    if: always()
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         continue-on-error: true
