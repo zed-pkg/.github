@@ -1,0 +1,272 @@
+name: DEN-3475 harden PR 47 branch refresh once
+
+on:
+  push:
+    branches:
+      - automation/2026-08-19-preserve-client-hardening
+
+permissions:
+  contents: write
+
+concurrency:
+  group: den-3475-harden-pr47-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  patch-and-verify:
+    if: github.repository == 'zed-pkg/.github'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out exact branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+          token: ${{ github.token }}
+          persist-credentials: true
+          show-progress: false
+
+      - name: Install executable branch-refresh contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          script_path = Path('tools/audit_harden_client.sh')
+          script = script_path.read_text(encoding='utf-8')
+
+          guard = '''if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
+            return 0
+          fi
+          '''
+          helper = r'''checkout_hardening_branch() {
+            local target="$1"
+            local default_branch="$2"
+            local branch="$3"
+            local default_ref="refs/heads/$default_branch"
+            local default_tracking="refs/remotes/origin/$default_branch"
+            local branch_ref="refs/heads/$branch"
+            local branch_tracking="refs/remotes/origin/$branch"
+            local lookup_status
+
+            git -C "$target" fetch --no-tags --prune origin \
+              "+${default_ref}:${default_tracking}"
+
+            set +e
+            git -C "$target" ls-remote --exit-code --heads origin "$branch_ref" \
+              >/dev/null 2>&1
+            lookup_status=$?
+            set -e
+
+            case "$lookup_status" in
+              0)
+                git -C "$target" fetch --no-tags --prune origin \
+                  "+${branch_ref}:${branch_tracking}"
+                git -C "$target" checkout -B "$branch" "$branch_tracking"
+                if ! git -C "$target" merge-base --is-ancestor \
+                  "$default_tracking" HEAD; then
+                  return 3
+                fi
+                ;;
+              2)
+                git -C "$target" checkout -B "$branch" "$default_tracking"
+                ;;
+              *)
+                return "$lookup_status"
+                ;;
+            esac
+          }
+
+          if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
+            return 0
+          fi
+          '''
+          if guard not in script:
+              raise SystemExit('source guard not found exactly once')
+          script = script.replace(guard, helper, 1)
+
+          old_block = r'''git -C "$TARGET" config user.name "zed-pkg automation"
+          git -C "$TARGET" config user.email "zed-pkg-automation@users.noreply.github.com"
+          git -C "$TARGET" fetch origin "$DEFAULT_BRANCH"
+          if git -C "$TARGET" fetch origin "$BRANCH"; then
+            git -C "$TARGET" checkout -B "$BRANCH" "origin/$BRANCH"
+            if ! git -C "$TARGET" merge-base --is-ancestor "origin/$DEFAULT_BRANCH" HEAD; then
+              STATUS=1
+              echo "::error title=${CLIENT_REPO} automation branch diverged::Preserving ${BRANCH}; reconcile it with ${DEFAULT_BRANCH} before the fleet hardener can write."
+            fi
+          else
+            git -C "$TARGET" checkout -B "$BRANCH" "origin/$DEFAULT_BRANCH"
+          fi
+          '''
+          new_block = r'''git -C "$TARGET" config user.name "zed-pkg automation"
+          git -C "$TARGET" config user.email "zed-pkg-automation@users.noreply.github.com"
+          set +e
+          checkout_hardening_branch "$TARGET" "$DEFAULT_BRANCH" "$BRANCH"
+          checkout_status=$?
+          set -e
+          case "$checkout_status" in
+            0)
+              ;;
+            3)
+              STATUS=1
+              echo "::error title=${CLIENT_REPO} automation branch diverged::Preserving ${BRANCH}; reconcile it with ${DEFAULT_BRANCH} before the fleet hardener can write."
+              ;;
+            *)
+              echo "::error title=${CLIENT_REPO} automation branch lookup failed::Unable to refresh ${BRANCH} safely; no generated changes will be produced or pushed."
+              exit 1
+              ;;
+          esac
+          '''
+          if old_block not in script:
+              raise SystemExit('existing branch-refresh block not found exactly once')
+          script_path.write_text(script.replace(old_block, new_block, 1), encoding='utf-8')
+
+          test_path = Path('tools/test_audit_harden_client.py')
+          tests = test_path.read_text(encoding='utf-8')
+          old_test = r'''    def test_existing_automation_branch_is_not_reset_to_default(self) -> None:
+                  source = AUDIT_SCRIPT.read_text(encoding="utf-8")
+
+                  self.assertIn(
+                      'checkout -B "$BRANCH" "origin/$BRANCH"',
+                      source,
+                  )
+                  self.assertIn(
+                      'merge-base --is-ancestor "origin/$DEFAULT_BRANCH" HEAD',
+                      source,
+                  )
+                  self.assertNotIn(
+                      'fetch origin "$DEFAULT_BRANCH" "$BRANCH" || git -C "$TARGET" fetch origin "$DEFAULT_BRANCH"',
+                      source,
+                  )
+          '''
+          new_test = r'''    def test_existing_automation_branch_refreshes_remote_tracking_ref(self) -> None:
+                  with tempfile.TemporaryDirectory() as temporary:
+                      root = Path(temporary)
+                      origin = root / "origin.git"
+                      seed = root / "seed"
+                      target = root / "target"
+
+                      def run(*command: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+                          return subprocess.run(
+                              list(command),
+                              cwd=cwd,
+                              text=True,
+                              capture_output=True,
+                              check=True,
+                          )
+
+                      run("git", "init", "--bare", str(origin))
+                      run("git", "clone", str(origin), str(seed))
+                      run("git", "config", "user.name", "fixture", cwd=seed)
+                      run("git", "config", "user.email", "fixture@example.invalid", cwd=seed)
+                      (seed / "contract.txt").write_text("main\n", encoding="utf-8")
+                      run("git", "add", "contract.txt", cwd=seed)
+                      run("git", "commit", "-m", "main", cwd=seed)
+                      run("git", "branch", "-M", "main", cwd=seed)
+                      run("git", "push", "origin", "main", cwd=seed)
+                      run("git", "switch", "-c", "automation/nightly-client-hardening", cwd=seed)
+                      (seed / "contract.txt").write_text("reviewed-v1\n", encoding="utf-8")
+                      run("git", "commit", "-am", "reviewed v1", cwd=seed)
+                      run("git", "push", "origin", "automation/nightly-client-hardening", cwd=seed)
+
+                      run(
+                          "git",
+                          "clone",
+                          "--branch",
+                          "main",
+                          "--no-single-branch",
+                          str(origin),
+                          str(target),
+                      )
+                      stale = run(
+                          "git",
+                          "rev-parse",
+                          "refs/remotes/origin/automation/nightly-client-hardening",
+                          cwd=target,
+                      ).stdout.strip()
+
+                      (seed / "contract.txt").write_text("reviewed-v2\n", encoding="utf-8")
+                      run("git", "commit", "-am", "reviewed v2", cwd=seed)
+                      run("git", "push", "origin", "automation/nightly-client-hardening", cwd=seed)
+                      expected = run("git", "rev-parse", "HEAD", cwd=seed).stdout.strip()
+                      self.assertNotEqual(stale, expected)
+
+                      workspace = root / "workspace"
+                      workspace.mkdir()
+                      environment = os.environ.copy()
+                      environment.update(
+                          {
+                              "AUDIT_SCRIPT": str(AUDIT_SCRIPT),
+                              "TARGET_REPO": str(target),
+                              "CLIENT_REPO": "example/example-clients",
+                              "CLIENT_ORG": "example",
+                              "CLIENT_NAME": "example-clients",
+                              "CLIENT_PREFIX": "example",
+                              "ZED_ORG": "example",
+                              "ZED_NAME": "example-clients",
+                              "ZED_COORDINATE": "example/example-clients",
+                              "DEFAULT_BRANCH": "main",
+                              "TEST_ORG": "example-test",
+                              "GITHUB_WORKSPACE": str(workspace),
+                          }
+                      )
+                      result = subprocess.run(
+                          [
+                              "bash",
+                              "-c",
+                              r'''source "$AUDIT_SCRIPT"
+          checkout_hardening_branch \
+            "$TARGET_REPO" \
+            main \
+            automation/nightly-client-hardening
+          git -C "$TARGET_REPO" rev-parse HEAD
+          git -C "$TARGET_REPO" rev-parse \
+            refs/remotes/origin/automation/nightly-client-hardening
+          ''',
+                          ],
+                          env=environment,
+                          text=True,
+                          capture_output=True,
+                          check=False,
+                      )
+                      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                      observed = [
+                          line.strip()
+                          for line in result.stdout.splitlines()
+                          if len(line.strip()) == 40
+                      ]
+                      self.assertGreaterEqual(len(observed), 2, result.stdout + result.stderr)
+                      self.assertEqual(observed[-2:], [expected, expected])
+                      self.assertEqual(
+                          (target / "contract.txt").read_text(encoding="utf-8"),
+                          "reviewed-v2\n",
+                      )
+          '''
+          if old_test not in tests:
+              raise SystemExit('source-only branch regression test not found exactly once')
+          test_path.write_text(tests.replace(old_test, new_test, 1), encoding='utf-8')
+          PY
+
+      - name: Run bounded contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n tools/audit_harden_client.sh
+          python3 -m unittest -v \
+            tools/test_audit_harden_client.py \
+            tools/test_run_clients_batch.py
+          git diff --check
+
+      - name: Commit verified repair and remove one-shot workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/ops-den-3475-harden-pr47-once.yml
+          git add tools/audit_harden_client.sh tools/test_audit_harden_client.py
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(DEN-3475): refresh reviewed branch by explicit ref'
+          git push origin "HEAD:${GITHUB_REF_NAME}"
