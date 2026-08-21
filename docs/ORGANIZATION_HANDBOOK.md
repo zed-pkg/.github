@@ -6,6 +6,18 @@
 
 zed-pkg maintains package, dependency, development-environment, and release tooling. This `.github` repository is the canonical home for shared policy, reusable templates, community health files, and planning links.
 
+Zed supplements ecosystem-native package managers; it does not replace them.
+
+## Public registry operations
+
+The canonical public roles, multi-cluster availability contract, verified
+artifact-mirror rules, promotion gates, and exact
+`env/enc/*.env.enc` to `env/dec/*.env` SOPS path contract are defined in
+[Public registry reliability](PUBLIC_REGISTRY_RELIABILITY.md). A source change
+or report-only check is not deployment evidence; the promoted commit must have
+authoritative DNS, ready replicas, storage-integrity checks, and an independent
+test-organization certification record.
+
 ## Repository contract
 
 Each active repository must document purpose, ownership, maturity, supported platforms and languages, development and test commands, authoritative manifest and lock formats, release and rollback procedures, compatibility policy, and GitHub Project/Linear links. Package components should also document resolution, pinning, integrity verification, caching, locking, concurrency, offline behavior, workspace and submodule interaction, environment precedence, and migration semantics.
