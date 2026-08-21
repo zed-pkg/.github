@@ -4,6 +4,15 @@ This organization maintains the independent **zed-pkg** multi-language package
 manager, interfaces, clients, services, infrastructure, certification, and
 supporting documentation. It is unrelated to the Zed text editor.
 
+Zed supplements ecosystem-native package managers; it does not replace them.
+
+Public endpoints have distinct roles: [`zpkg.net`](https://zpkg.net) is the
+human site, `api.zpkg.net` is the API, `registry.zpkg.net` is the immutable
+artifact surface, and `app.zpkg.net` is the canonical authenticated browser
+UI. `user.zpkg.net` is an optional permanent redirect to the app, not a second
+session origin. Availability, recovery, and promotion requirements are in the
+[public registry reliability contract](../docs/PUBLIC_REGISTRY_RELIABILITY.md).
+
 ## Planning and delivery
 
 - **Canonical Linear project:** [`github.com/zed-pkg`](https://linear.app/denman/project/githubcomzed-pkg-5a53230ae6cc)
