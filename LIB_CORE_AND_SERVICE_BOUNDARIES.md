@@ -8,7 +8,7 @@
 > This addendum supersedes older portfolio text that names a standalone `*-orm-core` repository, a general-purpose `*-lib`, an API-server repository, or `ORESoftware/k8s-libs-and-shared-defs` as the human-authored product database authority. Those locations may remain temporary compatibility packages, generated mirrors, deployment registries, or implementation consumers, but they must not remain a second source of truth.
 
 
-> **Persistence authority (2026-08-29):** Product SQL and ORM generation are owned in this org’s `*-lib-core` under the dual TypeSpec (P0) + authored JSON Schema (P1) model. Diesel + diesel-async is the primary Rust runtime; SeaORM is secondary. See [`docs/PERSISTENCE_DUAL_SOURCE.md`](docs/PERSISTENCE_DUAL_SOURCE.md). Claims that `ORESoftware/k8s-libs-and-shared-defs` authors this org’s product tables, or that SeaORM is the sole Rust ORM / schema authority, are superseded for product persistence.
+> **Persistence authority (2026-08-29):** Product SQL and ORM generation are owned in this org’s `*-lib-core` under the dual TypeSpec (P0) + authored JSON Schema (P1) model. Diesel + diesel-async is the primary Rust runtime; SeaORM is secondary. See [`docs/PERSISTENCE_AUTHORITY.md`](docs/PERSISTENCE_AUTHORITY.md). Claims that `ORESoftware/k8s-libs-and-shared-defs` authors this org’s product tables, or that SeaORM is the sole Rust ORM / schema authority, are superseded for product persistence.
 
 ## Executive decision
 
