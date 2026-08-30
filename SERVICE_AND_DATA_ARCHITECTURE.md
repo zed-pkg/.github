@@ -4,6 +4,9 @@ Status: **adopted; audited and revised 2026-08-08**
 Applies to: `fiducia-cloud`, `sonus-auris`, and `zed-pkg`; this document is mirrored in each organization’s `.github` repository and corresponding Linear project.  
 Tracking: **DEN-3033** (cross-org conformance), **DEN-3043** (fleet linter), **DEN-2787 / DEN-2788 / DEN-2789** (organization rollouts), **DEN-2785** (shared-definitions segmentation), **DEN-2786** (ownership-aware naming).
 
+
+> **Persistence authority (2026-08-29):** Product SQL and ORM generation are owned in this org’s `*-lib-core` under the dual TypeSpec (P0) + authored JSON Schema (P1) model. Diesel + diesel-async is the primary Rust runtime; SeaORM is secondary. See [`docs/PERSISTENCE_DUAL_SOURCE.md`](docs/PERSISTENCE_DUAL_SOURCE.md). Claims that `ORESoftware/k8s-libs-and-shared-defs` authors this org’s product tables, or that SeaORM is the sole Rust ORM / schema authority, are superseded for product persistence.
+
 ## Executive decision
 
 The boundary is defined by **capabilities and credentials**, not by a repository name, binary name, programming language, or whether the process returns HTML or JSON.
@@ -84,7 +87,7 @@ Normative rules:
 
 - Axum is the default HTTP framework for these servers.
 - Browser servers normally use Maud plus HTMX when server-rendered HTML is appropriate.
-- SeaORM is the direct Rust persistence layer; do not add a parallel bare SQLx/tokio-postgres application layer.
+- Diesel + diesel-async is the primary Rust persistence runtime; SeaORM is the secondary generated adapter. Do not add a parallel bare SQLx/tokio-postgres application layer. See [`docs/PERSISTENCE_DUAL_SOURCE.md`](docs/PERSISTENCE_DUAL_SOURCE.md).
 - Raw SeaORM connections, entity managers, and unrestricted query builders stay private to the persistence/ORM boundary.
 - Request/response, event, error, route, and authorization contracts come from `*-interfaces` and generated `*-clients`; do not duplicate ad hoc structs between web and API repositories.
 - `*-lib` remains domain/pure where practical. Database-generated code lives in the dedicated `*-orm-core` repository and is not re-exported through a general library as a compatibility shortcut.
