@@ -1,0 +1,54 @@
+name: materialize persistence policy main merge
+
+on:
+  push:
+    branches:
+      - docs/persistence-dual-source-20260829
+    paths:
+      - .github/workflows/materialize-persistence-policy-main-merge.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: materialize-persistence-policy-main-merge
+  cancel-in-progress: false
+
+jobs:
+  merge-current-main:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out exact policy branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: docs/persistence-dual-source-20260829
+          fetch-depth: 0
+          show-progress: false
+
+      - name: Fetch and verify current governance baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          test "$(git rev-parse origin/main)" = 031ec40754cdef1995ebd8780138716fe6cb47b5
+
+      - name: Merge current main without rewriting policy history
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git merge --no-ff origin/main -m 'merge: reconcile persistence policy with current governance'
+          git diff --check HEAD^ HEAD
+
+      - name: Remove bootstrap workflow and push both forward commits
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/materialize-persistence-policy-main-merge.yml
+          git add .github/workflows/materialize-persistence-policy-main-merge.yml
+          git diff --cached --check
+          test "$(git diff --cached --name-only)" = '.github/workflows/materialize-persistence-policy-main-merge.yml'
+          git commit -m 'ci: remove persistence policy merge bootstrap'
+          git push origin HEAD:docs/persistence-dual-source-20260829
