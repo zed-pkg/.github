@@ -1,4 +1,4 @@
-name: Run scheduled fleet tasks now 2026-09-02
+name: Run corrected Zed fleet audit now 2026-09-02
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: run-now-20260902
+  group: run-now-20260902-corrected-audit
   cancel-in-progress: false
 
 jobs:
@@ -20,37 +20,26 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Dispatch the real fleet workflows on main
+      - name: Dispatch the corrected organization-only audit on main
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          TARGET_ORGS: ORESoftware,opto-sync,fiducia-cloud,3FA-app,elenkos-systems,fanwaave,quaestor-ledger,ores-otel,shared-auth,zed-pkg,messaging-intel,gha-indie-worker,canonical-cloud,claritas-viz,sonus-auris,voxletra,memebank,anticaptrad,daedalus-fab,declarative-migrations,usa-acc,channelsiege,akrion-sim,scintilla-run,sagitta-stack
+          TARGET_ORGS: opto-sync,fiducia-cloud,3FA-app,elenkos-systems,fanwaave,quaestor-ledger,ores-otel,shared-auth,zed-pkg,messaging-intel,gha-indie-worker,canonical-cloud,claritas-viz,sonus-auris,voxletra,memebank,anticaptrad,daedalus-fab,declarative-migrations,usa-acc,channelsiege,akrion-sim,scintilla-run,sagitta-stack
         run: |
           set -euo pipefail
-
-          gh api --method POST \
-            "repos/${GITHUB_REPOSITORY}/actions/workflows/nightly-clients-fleet-hardening.yml/dispatches" \
-            -f ref=main \
-            -f "inputs[orgs]=${TARGET_ORGS}" \
-            -f 'inputs[apply]=true'
-
           gh api --method POST \
             "repos/${GITHUB_REPOSITORY}/actions/workflows/zed-fleet-audit.yml/dispatches" \
             -f ref=main \
             -f "inputs[orgs]=${TARGET_ORGS}"
+          echo 'Dispatched the corrected read-only Zed fleet audit on main.' >> "$GITHUB_STEP_SUMMARY"
 
-          echo 'Dispatched the apply-mode clients hardener and the read-only Zed fleet audit on main.' >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Record newly created dispatch runs
+      - name: Record the new audit run
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           sleep 12
-          {
-            echo '## New workflow-dispatch runs'
-            echo
-            gh api "repos/${GITHUB_REPOSITORY}/actions/runs?event=workflow_dispatch&per_page=10" \
-              --jq '.workflow_runs[] | "- \(.name): run \(.id), status=\(.status), conclusion=\(.conclusion // \"pending\"), head=\(.head_sha)"'
-          } >> "$GITHUB_STEP_SUMMARY"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs?event=workflow_dispatch&per_page=10" \
+            --jq '.workflow_runs[] | select(.name == "Zed fleet audit") | "Zed fleet audit run \(.id): status=\(.status), conclusion=\(.conclusion // \"pending\"), head=\(.head_sha)"' \
+            >> "$GITHUB_STEP_SUMMARY"
