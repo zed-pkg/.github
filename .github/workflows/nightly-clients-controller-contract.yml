@@ -8,6 +8,7 @@ on:
       - 'tools/audit_harden_client.sh'
       - 'tools/run_clients_batch.py'
       - 'tools/test_audit_harden_client.py'
+      - 'tools/test_nightly_clients_workflow.py'
       - 'tools/test_run_clients_batch.py'
   push:
     branches: [main]
@@ -17,6 +18,7 @@ on:
       - 'tools/audit_harden_client.sh'
       - 'tools/run_clients_batch.py'
       - 'tools/test_audit_harden_client.py'
+      - 'tools/test_nightly_clients_workflow.py'
       - 'tools/test_run_clients_batch.py'
   workflow_dispatch:
 
@@ -46,6 +48,7 @@ jobs:
           python3 -m py_compile \
             tools/run_clients_batch.py \
             tools/test_audit_harden_client.py \
+            tools/test_nightly_clients_workflow.py \
             tools/test_run_clients_batch.py
 
       - name: Run executable controller contracts
@@ -54,6 +57,7 @@ jobs:
           set -euo pipefail
           python3 -m unittest -v \
             tools/test_audit_harden_client.py \
+            tools/test_nightly_clients_workflow.py \
             tools/test_run_clients_batch.py
 
       - name: Reject malformed changes

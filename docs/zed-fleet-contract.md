@@ -10,11 +10,14 @@ A product family that benefits from a public or internal SDK should normally pro
 
 - `<prefix>-clients`
 - `<prefix>-interfaces`
-- exactly one shared-library repository: `<prefix>-lib`, `<prefix>-libs`, or an explicitly documented equivalent
+- exactly one shared-library repository: `<prefix>-lib-core`, `<prefix>-lib`, `<prefix>-libs`, or an explicitly documented equivalent
 - `<prefix>-cli` or `<prefix>-cli.rs`
 - `<prefix>-monorepo`
 
 Do not create two repositories for the same role merely to satisfy alternate naming conventions. Existing canonical repositories should be retained and package coordinates should be read from their manifests.
+When a historical `<prefix>-lib` coexists temporarily with its canonical
+`<prefix>-lib-core` successor, the auditor selects `-lib-core`; the predecessor
+should remain read-only until the reviewed migration and archival process finishes.
 
 Test, fixture, archived, and intentionally application-only organizations may be excluded from the production fleet list.
 

@@ -571,7 +571,7 @@ cat "$REPORT/summary.md" >>"${GITHUB_STEP_SUMMARY:-/dev/null}"
 
 PR_NUMBER=""
 if [[ "$CHANGED" == true && "$APPLY" == true && "$STATUS" -eq 0 ]]; then
-  if ! git -C "$TARGET" push --force-with-lease origin "HEAD:$BRANCH" >"$REPORT/git-push.log" 2>&1; then
+  if ! git -C "$TARGET" push origin "HEAD:$BRANCH" >"$REPORT/git-push.log" 2>&1; then
     cat "$REPORT/git-push.log"
     STATUS=1
     echo "::error title=${CLIENT_REPO} push::Unable to push ${BRANCH}"
