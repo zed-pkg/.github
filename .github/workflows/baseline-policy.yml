@@ -38,4 +38,5 @@ jobs:
           done
           python3 -m json.tool organization-policy.json >/dev/null
           python3 -m json.tool repository-relationships.json >/dev/null
+          python3 scripts/validate_public_registry_policy.py
           ! git grep -nE '^(<<<<<<<|=======|>>>>>>>)' -- . ':!*.lock'
