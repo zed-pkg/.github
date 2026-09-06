@@ -141,7 +141,7 @@ jobs:
           } >>"$GITHUB_OUTPUT"
           cat reports/discovery/summary.md >>"$GITHUB_STEP_SUMMARY"
       - name: Upload discovery report
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: clients-fleet-discovery
           path: reports/discovery
@@ -317,7 +317,7 @@ jobs:
           sha256sum toolchain/* > toolchain/SHA256SUMS
           sha256sum --check toolchain/SHA256SUMS
       - name: Upload canonical run toolchain
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: zed-clients-canonical-toolchain
           path: toolchain
@@ -434,7 +434,7 @@ jobs:
             --command python tools/run_clients_batch.py
       - name: Upload batch reports
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: client-hardening-batch-${{ matrix.batch_id }}
           path: reports
