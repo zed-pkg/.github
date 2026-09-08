@@ -1,0 +1,14 @@
+name: scratch-ignore-policy
+
+on:
+  pull_request:
+  push:
+    branches: [main, dev, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    uses: ORESoftware/.github/.github/workflows/scratch-ignore-policy.yml@8fa11e2fb5365b5545c438dd719399cb18903be2
