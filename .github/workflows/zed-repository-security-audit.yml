@@ -54,7 +54,7 @@ jobs:
             --verbose
 
   live-audit:
-    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push' }}
     needs: contract-tests
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -66,15 +66,20 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.ZED_FLEET_GH_TOKEN || github.token }}
           AUDIT_ORGS: ${{ inputs.orgs || vars.ZED_FLEET_ORGS || 'zed-pkg' }}
-          FAIL_ON: ${{ inputs.fail_on || 'critical' }}
+          FAIL_ON: ${{ inputs.fail_on || (github.event_name == 'push' && 'never') || 'critical' }}
         run: |
-          set -euo pipefail
+          set +e
           python3 tools/zed_repository_security_audit.py \
             --orgs "$AUDIT_ORGS" \
             --fail-on "$FAIL_ON" \
             --json zed-repository-security-audit.json \
             --markdown zed-repository-security-audit.md
-          cat zed-repository-security-audit.md >> "$GITHUB_STEP_SUMMARY"
+          status=$?
+          set -e
+          if [[ -f zed-repository-security-audit.md ]]; then
+            cat zed-repository-security-audit.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$status"
       - name: Upload deterministic receipts
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
