@@ -21,9 +21,18 @@ import zed_repository_security_audit as core
 
 _DOTENV_COMMANDS: Final = {"dotenv", "dotenv_if_exists"}
 _SOURCE_COMMANDS: Final = {"source", ".", "source_env", "source_env_if_exists"}
-_SENSITIVE_ASSIGNMENT_RE: Final = re.compile(
-    r"^(?:export\s+)?(?P<name>[A-Za-z_][A-Za-z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|PRIVATE_KEY|ACCESS_KEY|DATABASE_URL|API_KEY)[A-Za-z0-9_]*)\s*=\s*(?P<value>.*)$",
-    re.I,
+_ASSIGNMENT_RE: Final = re.compile(
+    r"^(?:export\s+)?(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?P<value>.*)$"
+)
+_SENSITIVE_NAME_MARKERS: Final = (
+    "TOKEN",
+    "SECRET",
+    "PASSWORD",
+    "PASSWD",
+    "PRIVATE_KEY",
+    "ACCESS_KEY",
+    "DATABASE_URL",
+    "API_KEY",
 )
 _SIMPLE_ENV_REFERENCE_RE: Final = re.compile(
     r"^(?:['\"])?\$\{?[A-Za-z_][A-Za-z0-9_]*(?::[-?+][^}]*)?\}?(?:['\"])?$"
@@ -40,6 +49,11 @@ def _root_has_agent_instructions(paths: Sequence[str]) -> bool:
 
 def _is_dynamic_path(path: str) -> bool:
     return any(marker in path for marker in ("$", "`", "$("))
+
+
+def _is_sensitive_name(name: str) -> bool:
+    upper = name.upper()
+    return any(marker in upper for marker in _SENSITIVE_NAME_MARKERS)
 
 
 def _envrc_findings(snapshot: core.RepoSnapshot, text: str) -> list[core.Finding]:
@@ -113,8 +127,8 @@ def _envrc_findings(snapshot: core.RepoSnapshot, text: str) -> list[core.Finding
                     )
                 )
 
-        assignment = _SENSITIVE_ASSIGNMENT_RE.match(stripped)
-        if assignment:
+        assignment = _ASSIGNMENT_RE.match(stripped)
+        if assignment and _is_sensitive_name(assignment.group("name")):
             value = assignment.group("value").strip()
             if value and not _SIMPLE_ENV_REFERENCE_RE.fullmatch(value):
                 findings.append(
