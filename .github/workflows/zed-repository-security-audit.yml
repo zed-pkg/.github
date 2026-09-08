@@ -4,14 +4,18 @@ on:
   pull_request:
     paths:
       - tools/zed_repository_security_audit.py
+      - tools/zed_repository_security_policy.py
       - tools/tests/test_zed_repository_security_audit.py
+      - tools/tests/test_zed_repository_security_policy.py
       - docs/zed-repository-security-audit.md
       - .github/workflows/zed-repository-security-audit.yml
   push:
     branches: [main]
     paths:
       - tools/zed_repository_security_audit.py
+      - tools/zed_repository_security_policy.py
       - tools/tests/test_zed_repository_security_audit.py
+      - tools/tests/test_zed_repository_security_policy.py
       - docs/zed-repository-security-audit.md
       - .github/workflows/zed-repository-security-audit.yml
   schedule:
@@ -47,10 +51,12 @@ jobs:
       - name: Compile and test the auditor
         run: |
           set -euo pipefail
-          python3 -m py_compile tools/zed_repository_security_audit.py
+          python3 -m py_compile \
+            tools/zed_repository_security_audit.py \
+            tools/zed_repository_security_policy.py
           python3 -m unittest discover \
             --start-directory tools/tests \
-            --pattern 'test_zed_repository_security_audit.py' \
+            --pattern 'test_zed_repository_security*.py' \
             --verbose
 
   live-audit:
@@ -69,7 +75,7 @@ jobs:
           FAIL_ON: ${{ inputs.fail_on || (github.event_name == 'push' && 'never') || 'critical' }}
         run: |
           set +e
-          python3 tools/zed_repository_security_audit.py \
+          python3 tools/zed_repository_security_policy.py \
             --orgs "$AUDIT_ORGS" \
             --fail-on "$FAIL_ON" \
             --json zed-repository-security-audit.json \
