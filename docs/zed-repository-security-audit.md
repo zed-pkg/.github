@@ -36,6 +36,12 @@ Findings are `warning`, `error`, or `critical`. Scheduled and manually dispatche
 runs fail at a configurable threshold. Pull requests execute deterministic unit
 fixtures only; they do not let contributor code use a broader organization token.
 
+A merge push that changes the auditor or its contract also runs the live inventory
+with `--fail-on never`. That push receipt establishes a current baseline without
+making known fleet debt block the merge that introduced the detector. Incomplete
+API evidence still exits with an operational failure, and scheduled/manual runs
+continue to enforce their selected severity threshold.
+
 ## Local usage
 
 ```bash
