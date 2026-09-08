@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import binascii
 import concurrent.futures
 import dataclasses
 import datetime as dt
@@ -97,6 +98,21 @@ PLAIN_ENV_EXEMPT_BASENAMES: Final = {
 
 class AuditAPIError(RuntimeError):
     """GitHub returned a response that prevents a trustworthy audit."""
+
+
+def _decode_github_content(content: str, *, context: str) -> str:
+    """Decode GitHub Contents API base64 while rejecting malformed bytes.
+
+    GitHub wraps inline base64 at fixed columns. Strip ASCII whitespace before
+    strict validation so ordinary API responses decode, while corrupt data still
+    fails closed.
+    """
+
+    normalized = "".join(content.split())
+    try:
+        return base64.b64decode(normalized, validate=True).decode("utf-8")
+    except (binascii.Error, UnicodeDecodeError) as error:
+        raise AuditAPIError(f"non-UTF-8 or malformed content at {context}") from error
 
 
 @dataclasses.dataclass(frozen=True, order=True)
@@ -233,10 +249,7 @@ class GitHubClient:
         content = value.get("content")
         if not isinstance(content, str):
             raise AuditAPIError(f"missing inline file content for {full_name}:{path}")
-        try:
-            return base64.b64decode(content, validate=True).decode("utf-8")
-        except (ValueError, UnicodeDecodeError) as error:
-            raise AuditAPIError(f"non-UTF-8 or malformed content at {full_name}:{path}") from error
+        return _decode_github_content(content, context=f"{full_name}:{path}")
 
 
 def _finding(

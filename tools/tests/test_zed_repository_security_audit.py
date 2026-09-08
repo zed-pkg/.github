@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import importlib.util
 import sys
 import unittest
@@ -38,6 +39,16 @@ def snapshot(*paths: str, name: str = "zed-cli", private: bool = True, truncated
 
 
 class PathPolicyTests(unittest.TestCase):
+    def test_wrapped_github_base64_decodes_strictly(self) -> None:
+        raw = b"line one\nline two\n"
+        wrapped = base64.encodebytes(raw).decode("ascii")
+        self.assertEqual(
+            AUDIT._decode_github_content(wrapped, context="fixture"),
+            raw.decode("utf-8"),
+        )
+        with self.assertRaises(AUDIT.AuditAPIError):
+            AUDIT._decode_github_content("not base64!", context="fixture")
+
     def test_plaintext_environment_detection_is_narrow(self) -> None:
         self.assertTrue(AUDIT._is_plaintext_env(".env"))
         self.assertTrue(AUDIT._is_plaintext_env("env/dec/prod.env"))
