@@ -1,0 +1,87 @@
+name: Zed repository security audit
+
+on:
+  pull_request:
+    paths:
+      - tools/zed_repository_security_audit.py
+      - tools/tests/test_zed_repository_security_audit.py
+      - docs/zed-repository-security-audit.md
+      - .github/workflows/zed-repository-security-audit.yml
+  push:
+    branches: [main]
+    paths:
+      - tools/zed_repository_security_audit.py
+      - tools/tests/test_zed_repository_security_audit.py
+      - docs/zed-repository-security-audit.md
+      - .github/workflows/zed-repository-security-audit.yml
+  schedule:
+    - cron: "43 8 * * 1"
+  workflow_dispatch:
+    inputs:
+      orgs:
+        description: Comma-separated organizations to audit
+        required: true
+        default: zed-pkg
+      fail_on:
+        description: Minimum severity that fails the live audit
+        required: true
+        type: choice
+        options: [critical, error, warning, never]
+        default: critical
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Compile and test the auditor
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/zed_repository_security_audit.py
+          python3 -m unittest discover \
+            --start-directory tools/tests \
+            --pattern 'test_zed_repository_security_audit.py' \
+            --verbose
+
+  live-audit:
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    needs: contract-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Audit immutable default-branch trees
+        env:
+          GITHUB_TOKEN: ${{ secrets.ZED_FLEET_GH_TOKEN || github.token }}
+          AUDIT_ORGS: ${{ inputs.orgs || vars.ZED_FLEET_ORGS || 'zed-pkg' }}
+          FAIL_ON: ${{ inputs.fail_on || 'critical' }}
+        run: |
+          set -euo pipefail
+          python3 tools/zed_repository_security_audit.py \
+            --orgs "$AUDIT_ORGS" \
+            --fail-on "$FAIL_ON" \
+            --json zed-repository-security-audit.json \
+            --markdown zed-repository-security-audit.md
+          cat zed-repository-security-audit.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload deterministic receipts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: zed-repository-security-audit
+          path: |
+            zed-repository-security-audit.json
+            zed-repository-security-audit.md
+          if-no-files-found: error
+          retention-days: 30
