@@ -1,16 +1,17 @@
 # Zed repository security audit
 
-`tools/zed_repository_security_audit.py` complements the package-family checks in
-`tools/zed_fleet_audit.py`. The family auditor answers whether producers and
-consumers form the intended Zed graph. This auditor answers whether each
-repository can be inspected and built without crossing a known security or
-provenance boundary.
+`tools/zed_repository_security_audit.py` provides the stable receipt engine and
+`tools/zed_repository_security_policy.py` applies the current Zed repository
+conventions. Together they complement the package-family checks in
+`tools/zed_fleet_audit.py`: the family auditor validates producer/consumer
+shape, while the security audit asks whether every exact default-branch tree can
+be inspected and built without crossing a known trust or provenance boundary.
 
 ## Read-only contract
 
-The tool performs GitHub `GET` requests only. It inventories active repositories,
-pins every read to the exact default-branch commit and recursive tree, and emits
-JSON plus Markdown receipts. It never creates branches, commits, issues, pull
+The tools perform GitHub `GET` requests only. They inventory active repositories,
+pin every read to the exact default-branch commit and recursive tree, and emit
+JSON plus Markdown receipts. They never create branches, commits, issues, pull
 requests, secrets, releases, packages, deployments, or cloud resources.
 
 A truncated Git tree or unreadable file is a critical finding. The auditor does
@@ -18,19 +19,24 @@ not interpret missing evidence as success.
 
 ## Checks
 
-The first contract covers:
+The contract covers:
 
 - immutable 40-hex GitHub Action pins and explicit workflow permissions;
 - privileged `pull_request_target` head checkouts and event-text shell injection;
 - network downloads piped directly to a shell;
 - committed credential-shaped literals in workflows;
 - plaintext environment files in public repositories;
+- content-aware public `.envrc` inspection: safe flake/tool activation is
+  permitted, while plaintext dotenv/source operations, dynamic environment
+  sources, committed sensitive assignments, malformed syntax, and unreadable
+  content remain findings;
 - public backend-only ORM and admin-server repositories;
 - `generated/README.md` provenance markers for generated trees;
 - valid `.zpkg.toml`, dependency lock presence, and repository identity;
 - fail-closed `[interop.flags-2-env]` bindings, including a nonempty
   `[build].outputs` list that retains the package-owned flags contract;
-- local `AGENTS.md` and package CI presence.
+- root-level `AGENTS.md` or `agents.md`, consistent with the repository policy
+  hierarchy, and package CI presence.
 
 Findings are `warning`, `error`, or `critical`. Scheduled and manually dispatched
 runs fail at a configurable threshold. Pull requests execute deterministic unit
@@ -46,7 +52,7 @@ continue to enforce their selected severity threshold.
 
 ```bash
 export GITHUB_TOKEN='from an approved secret manager'
-python3 tools/zed_repository_security_audit.py \
+python3 tools/zed_repository_security_policy.py \
   --orgs zed-pkg \
   --fail-on critical \
   --json zed-repository-security-audit.json \
