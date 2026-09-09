@@ -63,7 +63,8 @@ export function extractReferences(text, path = '<memory>') {
     }
   }
   const mentioned = text.includes('typespec-json-schema-validator') || text.includes('TJSV');
-  return { references, mentioned };
+  const referenceIntent = /uses:\s*ORESoftware\/typespec-json-schema-validator|repository:\s*ORESoftware\/typespec-json-schema-validator|VALIDATOR_REVISION\s*=|uses:\s*zed-pkg\/\.github\/\.github\/workflows\/reusable-tjsv-admission\.yml/u.test(text);
+  return { references, mentioned, referenceIntent };
 }
 
 function markerPresent(allText, alternatives) {
@@ -80,8 +81,8 @@ export function analyzeRepository(repository, policy) {
     const extracted = extractReferences(text, path);
     records.push(...extracted.references);
     mentioned ||= extracted.mentioned;
-    if (extracted.mentioned && extracted.references.length === 0) {
-      findings.push({ repository: repository.full_name, code: 'unparsed-tjsv-reference', path, message: 'TJSV is mentioned but no supported immutable reference shape was parsed.' });
+    if (extracted.referenceIntent && extracted.references.length === 0) {
+      findings.push({ repository: repository.full_name, code: 'unparsed-tjsv-reference', path, message: 'Executable TJSV reference syntax is present but no supported immutable reference shape was parsed.' });
     }
   }
   const direct = records.filter((item) => item.kind.startsWith('validator-'));
