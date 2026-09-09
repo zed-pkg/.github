@@ -53,7 +53,7 @@ jobs:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
       - name: Run canonical peer-authority parity and fresh Contract IR
-        uses: ORESoftware/typespec-json-schema-validator@d60d0d79d83e075077382623ec9e23a401ab601f
+        uses: ORESoftware/typespec-json-schema-validator@a4b731fbf82c4d162abd74fd03758fa32bb76176
         with:
           typespec: ${{ inputs.typespec }}
           schema: ${{ inputs.schema }}
@@ -66,8 +66,8 @@ jobs:
           output_dir: tmp/tjsv-admission/generated
           max_probes: "64"
           quiet: "true"
-      - name: Require current-input admission and nineteen refusal regressions
-        uses: ORESoftware/typespec-json-schema-validator/actions/test-consumer-admission@d60d0d79d83e075077382623ec9e23a401ab601f
+      - name: Require current-input admission and canonical refusal regressions
+        uses: ORESoftware/typespec-json-schema-validator/actions/test-consumer-admission@a4b731fbf82c4d162abd74fd03758fa32bb76176
         with:
           contract_ir: tmp/tjsv-admission/contract-ir.json
           report: tmp/tjsv-admission/report.json
