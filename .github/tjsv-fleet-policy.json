@@ -1,0 +1,32 @@
+{
+  "schema": "zed.tjsv-fleet-policy/v1",
+  "organization": "zed-pkg",
+  "currentValidatorRevision": "a4b731fbf82c4d162abd74fd03758fa32bb76176",
+  "reusableWorkflowRepository": "zed-pkg/.github",
+  "reusableWorkflowRevision": "984924ead3a222a0e99928b2bcdbd87664745acf",
+  "requiredConsumers": [
+    "zed-pkg/zed-interfaces",
+    "zed-pkg/zed-lib-core",
+    "zed-pkg/zed-orm-core",
+    "zed-pkg/zed-clients",
+    "zed-pkg/zed-pub-lib-core"
+  ],
+  "minimumCapabilities": [
+    "independent-typespec-json-schema-peer-authorities",
+    "fresh-contract-ir",
+    "dense-declaration-inventory",
+    "current-input-consumer-verification",
+    "canonical-refusal-probes",
+    "null-safe-conditional-witnesses",
+    "language-boundary-schema-runtime-lockstep",
+    "durable-verification-receipt"
+  ],
+  "capabilityMarkers": {
+    "fresh-contract-ir": ["contract_ir", "contract-ir"],
+    "dense-declaration-inventory": ["expected_declarations", "requiredDeclarations", "expectedDeclarations"],
+    "current-input-consumer-verification": ["test-consumer-admission", "verifyContractIr", "verifyContractIrAdmission", "verify-ir"],
+    "canonical-refusal-probes": ["test-consumer-admission", "rejects", "rejection", "refusal"],
+    "durable-verification-receipt": ["consumer-verification-receipt/v1", "contract-ir-verification/v1", "verification.json"]
+  },
+  "candidateFileLimitPerRepository": 96
+}

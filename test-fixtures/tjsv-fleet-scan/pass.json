@@ -1,0 +1,35 @@
+{
+  "schema": "zed.tjsv-fleet-snapshot/v1",
+  "repositories": [
+    {
+      "full_name": "zed-pkg/zed-interfaces",
+      "files": {
+        ".github/workflows/tjsv.yml": "uses: ORESoftware/typespec-json-schema-validator@03ccc0ecdfc70f9198c3ccf80718910961d3fde1\ncontract_ir expected_declarations test-consumer-admission verification.json"
+      }
+    },
+    {
+      "full_name": "zed-pkg/zed-lib-core",
+      "files": {
+        ".github/workflows/tjsv.yml": "uses: ORESoftware/typespec-json-schema-validator@2281843126ab644607b11cf8281d84f382d68dfc\ncontract_ir expected_declarations test-consumer-admission verification.json"
+      }
+    },
+    {
+      "full_name": "zed-pkg/zed-orm-core",
+      "files": {
+        ".github/workflows/tjsv.yml": "uses: ORESoftware/typespec-json-schema-validator@2281843126ab644607b11cf8281d84f382d68dfc\ncontract_ir expected_declarations test-consumer-admission verification.json"
+      }
+    },
+    {
+      "full_name": "zed-pkg/zed-clients",
+      "files": {
+        ".github/workflows/tjsv.yml": "uses: ORESoftware/typespec-json-schema-validator@d60d0d79d83e075077382623ec9e23a401ab601f\ncontract_ir requiredDeclarations verifyContractIrAdmission rejects verification.json"
+      }
+    },
+    {
+      "full_name": "zed-pkg/zed-pub-lib-core",
+      "files": {
+        ".github/workflows/tjsv.yml": "uses: ORESoftware/typespec-json-schema-validator@d60d0d79d83e075077382623ec9e23a401ab601f\ncontract_ir expected_declarations test-consumer-admission verification.json"
+      }
+    }
+  ]
+}
