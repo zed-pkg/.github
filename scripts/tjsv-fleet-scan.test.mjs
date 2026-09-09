@@ -10,7 +10,7 @@ const policy = validatePolicy({
   requiredConsumers: ['zed-pkg/required'], minimumCapabilities: ['fresh-contract-ir'],
   capabilityMarkers: { 'fresh-contract-ir': ['contract_ir'], 'dense-declaration-inventory': ['expected_declarations'],
     'current-input-consumer-verification': ['test-consumer-admission'], 'canonical-refusal-probes': ['test-consumer-admission'],
-    'durable-verification-receipt': ['verification.json'] }, candidateFileLimitPerRepository: 20,
+    'durable-verification-receipt': ['consumer-verification-receipt/v1', 'contract-ir-verification/v1', 'verification.json'] }, candidateFileLimitPerRepository: 20,
 });
 const emptyLedger = { schema: 'zed.tjsv-pin-exceptions/v1', exceptions: [] };
 const currentWorkflow = `uses: ORESoftware/typespec-json-schema-validator@${CURRENT}\nwith:\n  contract_ir: out/contract-ir.json\nuses: ORESoftware/typespec-json-schema-validator/actions/test-consumer-admission@${CURRENT}\nwith:\n  expected_declarations: '["Zed.Test"]'\n  verification: out/verification.json\n`;
@@ -18,6 +18,18 @@ const currentWorkflow = `uses: ORESoftware/typespec-json-schema-validator@${CURR
 test('extracts direct action, checkout, constant and reusable workflow pins', () => {
   const text = `uses: ORESoftware/typespec-json-schema-validator@${CURRENT}\nrepository: ORESoftware/typespec-json-schema-validator\n  ref: ${CURRENT}\nconst VALIDATOR_REVISION = '${CURRENT}';\nuses: zed-pkg/.github/.github/workflows/reusable-tjsv-admission.yml@${REUSABLE}`;
   assert.deepEqual(extractReferences(text).references.map((item) => item.kind), ['validator-action', 'validator-checkout', 'validator-constant', 'reusable-workflow']);
+});
+
+test('prose and regression descriptions are not mistaken for executable references', () => {
+  const extracted = extractReferences('TJSV and typespec-json-schema-validator enforce this regression; no action or checkout is declared here.');
+  assert.equal(extracted.mentioned, true);
+  assert.equal(extracted.referenceIntent, false);
+  assert.deepEqual(extracted.references, []);
+});
+
+test('malformed executable reference intent is fail-closed', () => {
+  const result = analyzeSnapshot({ repositories: [{ full_name: 'zed-pkg/required', files: { '.github/workflows/a.yml': 'uses: ORESoftware/typespec-json-schema-validator\ncontract_ir expected_declarations test-consumer-admission verification.json' } }] }, policy, emptyLedger, new Date('2026-09-09T12:00:00Z'));
+  assert.ok(result.findings.some((item) => item.code === 'unparsed-tjsv-reference'));
 });
 
 test('current direct admission with capability markers passes', () => {
