@@ -10,11 +10,43 @@
       "expiresAt": "2026-09-16"
     },
     {
+      "repository": "zed-pkg/zed-interfaces",
+      "code": "stale-validator-pin",
+      "pin": "2281843126ab644607b11cf8281d84f382d68dfc",
+      "owner": "DEN-3982",
+      "reason": "Git CLI and peer-authority lanes use a dense-scope-era validator; recertify them on DEN-3830 before exception expiry.",
+      "expiresAt": "2026-09-16"
+    },
+    {
+      "repository": "zed-pkg/zed-interfaces",
+      "code": "stale-validator-pin",
+      "pin": "22d66b53d2cb5b99f78bbd16c2f235e3defde0f3",
+      "owner": "DEN-3982",
+      "reason": "Peer wire-case lane still uses the pre-DEN-3958 validator and must be migrated with its existing negative controls intact.",
+      "expiresAt": "2026-09-16"
+    },
+    {
+      "repository": "zed-pkg/zed-interfaces",
+      "code": "stale-validator-pin",
+      "pin": "b5bd51946b53c00b1daeb2723c0b5d54eaeafab7",
+      "owner": "DEN-3982",
+      "reason": "Legacy TJSV admission regression lane remains independently useful but must be recertified on the language-boundary baseline.",
+      "expiresAt": "2026-09-16"
+    },
+    {
       "repository": "zed-pkg/zed-lib-core",
       "code": "stale-validator-pin",
       "pin": "2281843126ab644607b11cf8281d84f382d68dfc",
       "owner": "DEN-3982",
       "reason": "Migrate the current public consumer to the merged reusable workflow while preserving native/formal/registry gates.",
+      "expiresAt": "2026-09-16"
+    },
+    {
+      "repository": "zed-pkg/zed-lib-core",
+      "code": "stale-validator-pin",
+      "pin": "c745036456dd80408b83217118b8563edb8f6abd",
+      "owner": "DEN-3982",
+      "reason": "Public contract runtime lane was discovered by the live scan and needs explicit DEN-3830 runtime/schema recertification.",
       "expiresAt": "2026-09-16"
     },
     {
