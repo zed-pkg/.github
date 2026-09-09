@@ -1,0 +1,27 @@
+name: reusable TJSV admission self-test
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/reusable-tjsv-admission.yml'
+      - '.github/workflows/tjsv-admission-selftest.yml'
+      - 'test-fixtures/tjsv-admission/**'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/reusable-tjsv-admission.yml'
+      - '.github/workflows/tjsv-admission-selftest.yml'
+      - 'test-fixtures/tjsv-admission/**'
+
+permissions:
+  contents: read
+
+jobs:
+  fixture:
+    uses: ./.github/workflows/reusable-tjsv-admission.yml
+    with:
+      typespec: test-fixtures/tjsv-admission/main.tsp
+      schema: test-fixtures/tjsv-admission/authored.schema.json
+      expected_declarations: '["Zed.Governance.AdmissionFixture"]'
+      seal_object_schemas: "false"
+      artifact_name: reusable-tjsv-selftest

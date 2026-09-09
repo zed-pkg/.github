@@ -1,0 +1,104 @@
+name: Reusable TJSV contract admission
+
+on:
+  workflow_call:
+    inputs:
+      typespec:
+        description: Independently authored TypeSpec source path.
+        required: true
+        type: string
+      schema:
+        description: Independently authored Draft 2020-12 JSON Schema path.
+        required: true
+        type: string
+      expected_declarations:
+        description: Complete JSON array of qualified TypeSpec declaration identities.
+        required: true
+        type: string
+      instances:
+        description: Optional independently maintained instance corpus directory.
+        required: false
+        default: ""
+        type: string
+      int64_strategy:
+        description: TJSV int64 wire strategy.
+        required: false
+        default: string
+        type: string
+      seal_object_schemas:
+        description: TJSV object sealing policy; authored closure remains authoritative.
+        required: false
+        default: "false"
+        type: string
+      artifact_name:
+        description: Evidence artifact name.
+        required: false
+        default: tjsv-contract-admission
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  admission:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify exact reviewed consumer head
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - name: Run canonical peer-authority parity and fresh Contract IR
+        uses: ORESoftware/typespec-json-schema-validator@a4b731fbf82c4d162abd74fd03758fa32bb76176
+        with:
+          typespec: ${{ inputs.typespec }}
+          schema: ${{ inputs.schema }}
+          instances: ${{ inputs.instances }}
+          int64_strategy: ${{ inputs.int64_strategy }}
+          seal_object_schemas: ${{ inputs.seal_object_schemas }}
+          report: tmp/tjsv-admission/report.json
+          sarif: tmp/tjsv-admission/report.sarif
+          contract_ir: tmp/tjsv-admission/contract-ir.json
+          output_dir: tmp/tjsv-admission/generated
+          max_probes: "64"
+          quiet: "true"
+      - name: Require current-input admission and canonical refusal regressions
+        uses: ORESoftware/typespec-json-schema-validator/actions/test-consumer-admission@a4b731fbf82c4d162abd74fd03758fa32bb76176
+        with:
+          contract_ir: tmp/tjsv-admission/contract-ir.json
+          report: tmp/tjsv-admission/report.json
+          typespec: ${{ inputs.typespec }}
+          schema: ${{ inputs.schema }}
+          generated_schema: tmp/tjsv-admission/generated/typespec.generated.schema.json
+          expected_declarations: ${{ inputs.expected_declarations }}
+          verification: tmp/tjsv-admission/verification.json
+      - name: Assert durable verification receipt
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          const receipt = JSON.parse(readFileSync('tmp/tjsv-admission/verification.json', 'utf8'));
+          assert.equal(receipt.schema, 'ores.typespec-json-schema-validator.consumer-verification-receipt/v1');
+          assert.equal(receipt.status, 'passed');
+          assert.equal(receipt.admissible, true);
+          assert.equal(receipt.failureCode, null);
+          assert.equal(receipt.suppliedIrId, receipt.computedIrId);
+          assert.equal(receipt.suppliedIrId, receipt.expectedIrId);
+          NODE
+      - name: Authored consumer sources must remain unchanged
+        run: git diff --exit-code HEAD
+      - name: Retain current-run TJSV evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ inputs.artifact_name }}-${{ github.event.pull_request.head.sha || github.sha }}
+          path: tmp/tjsv-admission/
+          if-no-files-found: warn
+          retention-days: 14
+
+# DEN-3828 / zed-pkg/.github#67. TJSV is build-time fail-closed evidence.
+# TypeSpec and authored JSON Schema remain independent peer authorities.
