@@ -1,0 +1,77 @@
+name: TJSV fleet pin and capability scan
+
+on:
+  pull_request:
+    paths:
+      - '.github/tjsv-fleet-policy.json'
+      - '.github/tjsv-pin-exceptions.json'
+      - '.github/workflows/tjsv-fleet-scan.yml'
+      - 'scripts/tjsv-fleet-scan.mjs'
+      - 'scripts/tjsv-fleet-scan.test.mjs'
+      - 'test-fixtures/tjsv-fleet-scan/**'
+  push:
+    branches: [main]
+    paths:
+      - '.github/tjsv-fleet-policy.json'
+      - '.github/tjsv-pin-exceptions.json'
+      - '.github/workflows/tjsv-fleet-scan.yml'
+      - 'scripts/tjsv-fleet-scan.mjs'
+      - 'scripts/tjsv-fleet-scan.test.mjs'
+      - 'test-fixtures/tjsv-fleet-scan/**'
+  schedule:
+    - cron: '17 8 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scanner-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify exact reviewed scanner head
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - run: node --test scripts/tjsv-fleet-scan.test.mjs
+      - name: Deterministic exception-ledger fixture
+        env:
+          TJSV_SCAN_FIXTURE: test-fixtures/tjsv-fleet-scan/pass.json
+        run: node scripts/tjsv-fleet-scan.mjs
+      - name: Fixture must not mutate tracked policy
+        run: git diff --exit-code HEAD
+
+  live-fleet:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify exact reviewed scanner head
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - name: Scan visible Zed repositories; private visibility requires explicit bounded exception
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ZED_FLEET_READ_TOKEN: ${{ secrets.ZED_FLEET_READ_TOKEN }}
+        run: node scripts/tjsv-fleet-scan.mjs
+      - name: Preserve scan evidence even on failure
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: tjsv-fleet-scan-${{ github.event.pull_request.head.sha || github.sha }}
+          path: tmp/tjsv-fleet-scan/
+          if-no-files-found: error
+          retention-days: 14
+
+# DEN-3982 / zed-pkg/.github#68. The repo-scoped GITHUB_TOKEN is not
+# misrepresented as private-org access; optional read authorization is injected
+# only through an approved Actions secret, never a chat-pasted credential.
