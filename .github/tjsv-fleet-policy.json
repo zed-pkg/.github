@@ -26,7 +26,7 @@
     "dense-declaration-inventory": ["expected_declarations", "requiredDeclarations", "expectedDeclarations"],
     "current-input-consumer-verification": ["test-consumer-admission", "verifyContractIr", "verifyContractIrAdmission", "verify-ir"],
     "canonical-refusal-probes": ["test-consumer-admission", "rejects", "rejection", "refusal"],
-    "durable-verification-receipt": ["consumer-verification-receipt/v1", "verification.json"]
+    "durable-verification-receipt": ["consumer-verification-receipt/v1", "contract-ir-verification/v1", "verification.json"]
   },
   "candidateFileLimitPerRepository": 96
 }
