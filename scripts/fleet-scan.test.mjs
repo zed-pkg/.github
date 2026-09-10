@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { analyzeSnapshot, applyExceptions, extractReferences, validateExceptions, validatePolicy } from './tjsv-fleet-scan.mjs';
+import { analyzeSnapshot, applyExceptions, extractReferences, repositoryScanRef, validateExceptions, validatePolicy } from './tjsv-fleet-scan.mjs';
 
 const CURRENT = '4a5d049218adc2740d4cf78f612caf7f38f6f64c';
 const REUSABLE = '4eb44b4d5ea606137a3b9dfa6572ed2a77185605';
@@ -25,6 +25,13 @@ test('prose and regression descriptions are not mistaken for executable referenc
   assert.equal(extracted.mentioned, true);
   assert.equal(extracted.referenceIntent, false);
   assert.deepEqual(extracted.references, []);
+});
+
+test('current repository live scan is pinned to the exact reviewed immutable revision', () => {
+  const self = { full_name: 'zed-pkg/.github', default_branch: 'main' };
+  assert.equal(repositoryScanRef(self, 'zed-pkg/.github', CURRENT), CURRENT);
+  assert.equal(repositoryScanRef({ full_name: 'zed-pkg/other', default_branch: 'dev' }, 'zed-pkg/.github', CURRENT), 'dev');
+  assert.throws(() => repositoryScanRef(self, 'zed-pkg/.github', 'main'), /immutable SHA/u);
 });
 
 test('malformed executable reference intent is fail-closed', () => {

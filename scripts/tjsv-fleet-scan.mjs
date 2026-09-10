@@ -162,6 +162,12 @@ function candidatePath(path) {
   return /^(?:\.github\/(?:workflows|actions)\/.*\.ya?ml|contract-admission\/.*\.mjs|validation\/.*\.(?:mjs|js|json|ya?ml))$/u.test(path) || /tjsv/iu.test(path);
 }
 
+export function repositoryScanRef(repo, currentRepository = '', currentRevision = '') {
+  if (repo.full_name !== currentRepository) return repo.default_branch;
+  need(SHA40.test(currentRevision), 'current repository scan revision must be an immutable SHA');
+  return currentRevision;
+}
+
 async function githubJson(url, token) {
   const headers = { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -184,10 +190,11 @@ async function listRepositories(policy, token) {
   return repositories;
 }
 
-async function readRepository(repo, policy, token) {
+async function readRepository(repo, policy, token, currentRepository = '', currentRevision = '') {
+  const ref = repositoryScanRef(repo, currentRepository, currentRevision);
   let tree;
   try {
-    tree = await githubJson(`https://api.github.com/repos/${repo.full_name}/git/trees/${encodeURIComponent(repo.default_branch)}?recursive=1`, token);
+    tree = await githubJson(`https://api.github.com/repos/${repo.full_name}/git/trees/${encodeURIComponent(ref)}?recursive=1`, token);
   } catch (error) {
     if (error.status === 403 || error.status === 404) return { full_name: repo.full_name, unreadable: true, files: {} };
     throw error;
@@ -196,7 +203,7 @@ async function readRepository(repo, policy, token) {
   const files = {};
   for (const entry of candidates) {
     try {
-      const file = await githubJson(`https://api.github.com/repos/${repo.full_name}/contents/${entry.path.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(repo.default_branch)}`, token);
+      const file = await githubJson(`https://api.github.com/repos/${repo.full_name}/contents/${entry.path.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(ref)}`, token);
       if (file.encoding === 'base64' && typeof file.content === 'string') files[entry.path] = TEXT_DECODER.decode(Buffer.from(file.content.replace(/\n/gu, ''), 'base64'));
     } catch (error) {
       if (error.status !== 403 && error.status !== 404) throw error;
@@ -205,10 +212,10 @@ async function readRepository(repo, policy, token) {
   return { full_name: repo.full_name, files };
 }
 
-export async function createLiveSnapshot(policy, token) {
+export async function createLiveSnapshot(policy, token, currentRepository = '', currentRevision = '') {
   const listed = await listRepositories(policy, token);
   const repositories = [];
-  for (const repo of listed.sort((a, b) => a.full_name.localeCompare(b.full_name))) repositories.push(await readRepository(repo, policy, token));
+  for (const repo of listed.sort((a, b) => a.full_name.localeCompare(b.full_name))) repositories.push(await readRepository(repo, policy, token, currentRepository, currentRevision));
   return { schema: 'zed.tjsv-fleet-snapshot/v1', repositories };
 }
 
@@ -237,7 +244,12 @@ async function main() {
   ]);
   const fixture = process.env.TJSV_SCAN_FIXTURE;
   const snapshot = fixture ? JSON.parse(await readFile(resolve(ROOT, fixture), 'utf8')) :
-    await createLiveSnapshot(validatePolicy(policy), process.env.ZED_FLEET_READ_TOKEN || process.env.GITHUB_TOKEN || '');
+    await createLiveSnapshot(
+      validatePolicy(policy),
+      process.env.ZED_FLEET_READ_TOKEN || process.env.GITHUB_TOKEN || '',
+      process.env.ZED_FLEET_CURRENT_REPOSITORY || '',
+      process.env.ZED_FLEET_CURRENT_REVISION || '',
+    );
   const result = analyzeSnapshot(snapshot, policy, ledger, new Date());
   const output = join(ROOT, 'tmp/tjsv-fleet-scan');
   await mkdir(output, { recursive: true });
