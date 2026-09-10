@@ -1,9 +1,9 @@
 {
   "schema": "zed.tjsv-fleet-policy/v1",
   "organization": "zed-pkg",
-  "currentValidatorRevision": "a4b731fbf82c4d162abd74fd03758fa32bb76176",
+  "currentValidatorRevision": "4a5d049218adc2740d4cf78f612caf7f38f6f64c",
   "reusableWorkflowRepository": "zed-pkg/.github",
-  "reusableWorkflowRevision": "984924ead3a222a0e99928b2bcdbd87664745acf",
+  "reusableWorkflowRevision": "4eb44b4d5ea606137a3b9dfa6572ed2a77185605",
   "requiredConsumers": [
     "zed-pkg/zed-interfaces",
     "zed-pkg/zed-lib-core",
@@ -19,6 +19,9 @@
     "canonical-refusal-probes",
     "null-safe-conditional-witnesses",
     "language-boundary-schema-runtime-lockstep",
+    "runtime-evidence-v2-privacy",
+    "qualified-nested-namespace-identity",
+    "nested-record-array-boundary-drift",
     "durable-verification-receipt"
   ],
   "capabilityMarkers": {
