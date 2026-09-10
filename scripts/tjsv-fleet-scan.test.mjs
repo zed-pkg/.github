@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { analyzeSnapshot, applyExceptions, extractReferences, validateExceptions, validatePolicy } from './tjsv-fleet-scan.mjs';
 
-const CURRENT = 'a4b731fbf82c4d162abd74fd03758fa32bb76176';
-const REUSABLE = '984924ead3a222a0e99928b2bcdbd87664745acf';
+const CURRENT = '4a5d049218adc2740d4cf78f612caf7f38f6f64c';
+const REUSABLE = '4eb44b4d5ea606137a3b9dfa6572ed2a77185605';
 const policy = validatePolicy({
   schema: 'zed.tjsv-fleet-policy/v1', organization: 'zed-pkg', currentValidatorRevision: CURRENT,
   reusableWorkflowRepository: 'zed-pkg/.github', reusableWorkflowRevision: REUSABLE,
