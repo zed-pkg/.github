@@ -62,6 +62,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           ZED_FLEET_READ_TOKEN: ${{ secrets.ZED_FLEET_READ_TOKEN }}
+          ZED_FLEET_CURRENT_REPOSITORY: ${{ github.repository }}
+          ZED_FLEET_CURRENT_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
         run: node scripts/tjsv-fleet-scan.mjs
       - name: Preserve scan evidence even on failure
         if: ${{ always() }}
