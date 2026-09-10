@@ -2,6 +2,30 @@
   "schema": "zed.tjsv-pin-exceptions/v1",
   "exceptions": [
     {
+      "repository": "zed-pkg/.github",
+      "code": "mutable-validator-pin",
+      "path": "scripts/tjsv-fleet-scan.test.mjs",
+      "owner": "DEN-3982",
+      "reason": "Scanner unit tests intentionally construct mutable and interpolated TJSV references; #85 will exclude only scanner-owned synthetic source from live discovery while retaining parser unit coverage.",
+      "expiresAt": "2026-09-16"
+    },
+    {
+      "repository": "zed-pkg/.github",
+      "code": "mutable-reusable-pin",
+      "path": "scripts/tjsv-fleet-scan.test.mjs",
+      "owner": "DEN-3982",
+      "reason": "Scanner unit tests intentionally construct interpolated reusable-workflow references; #85 will remove this live-scan self-fixture false positive without weakening mutable-pin detection.",
+      "expiresAt": "2026-09-16"
+    },
+    {
+      "repository": "zed-pkg/.github",
+      "code": "mutable-validator-pin",
+      "path": "test-fixtures/tjsv-fleet-scan/pass.json",
+      "owner": "DEN-3982",
+      "reason": "The deterministic pass fixture embeds escaped stale reference strings as simulated repository input; #85 will keep fixture analysis while preventing the outer fixture file from being treated as production configuration.",
+      "expiresAt": "2026-09-16"
+    },
+    {
       "repository": "zed-pkg/zed-interfaces",
       "code": "stale-validator-pin",
       "pin": "03ccc0ecdfc70f9198c3ccf80718910961d3fde1",
