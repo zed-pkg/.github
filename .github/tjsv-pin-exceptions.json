@@ -34,6 +34,14 @@
       "expiresAt": "2026-09-16"
     },
     {
+      "repository": "zed-pkg/zed-interfaces",
+      "code": "stale-reusable-pin",
+      "pin": "984924ead3a222a0e99928b2bcdbd87664745acf",
+      "owner": "DEN-3982",
+      "reason": "The production public reusable admission was certified on the prior merge and must be repinned to the new current-TJSV reusable merge without dropping native or parity gates.",
+      "expiresAt": "2026-09-16"
+    },
+    {
       "repository": "zed-pkg/zed-lib-core",
       "code": "stale-validator-pin",
       "pin": "2281843126ab644607b11cf8281d84f382d68dfc",
@@ -62,7 +70,23 @@
       "code": "stale-validator-pin",
       "pin": "d60d0d79d83e075077382623ec9e23a401ab601f",
       "owner": "DEN-3982",
-      "reason": "Client guard has DEN-3959 evidence but still needs DEN-3830 language-boundary recertification.",
+      "reason": "Older client references may remain beside the newly certified reusable lane and need exact-current-baseline cleanup without weakening DEN-3959 regressions.",
+      "expiresAt": "2026-09-16"
+    },
+    {
+      "repository": "zed-pkg/zed-clients",
+      "code": "stale-validator-pin",
+      "pin": "f8b68ccc9d88fbe3843106b8d79fd9e1dbac3256",
+      "owner": "DEN-3982",
+      "reason": "The specialized client Contract IR guard was exact-head certified with the reusable workflow on this merged TJSV revision; repin it to the newer fleet baseline only with the same real-compiler and Nix evidence.",
+      "expiresAt": "2026-09-16"
+    },
+    {
+      "repository": "zed-pkg/zed-clients",
+      "code": "stale-reusable-pin",
+      "pin": "984924ead3a222a0e99928b2bcdbd87664745acf",
+      "owner": "DEN-3982",
+      "reason": "Client PR 69 proved reusable and specialized admission together on the prior reusable merge; repin to the current-TJSV reusable merge with all eight exact-head suites intact.",
       "expiresAt": "2026-09-16"
     },
     {
