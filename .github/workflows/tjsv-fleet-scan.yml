@@ -7,8 +7,8 @@ on:
       - '.github/tjsv-pin-exceptions.json'
       - '.github/workflows/tjsv-fleet-scan.yml'
       - 'scripts/tjsv-fleet-scan.mjs'
-      - 'scripts/tjsv-fleet-scan.test.mjs'
-      - 'test-fixtures/tjsv-fleet-scan/**'
+      - 'scripts/fleet-scan.test.mjs'
+      - 'test-fixtures/fleet-scan/**'
   push:
     branches: [main]
     paths:
@@ -16,8 +16,8 @@ on:
       - '.github/tjsv-pin-exceptions.json'
       - '.github/workflows/tjsv-fleet-scan.yml'
       - 'scripts/tjsv-fleet-scan.mjs'
-      - 'scripts/tjsv-fleet-scan.test.mjs'
-      - 'test-fixtures/tjsv-fleet-scan/**'
+      - 'scripts/fleet-scan.test.mjs'
+      - 'test-fixtures/fleet-scan/**'
   schedule:
     - cron: '17 8 * * *'
   workflow_dispatch:
@@ -38,10 +38,10 @@ jobs:
         env:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
-      - run: node --test scripts/tjsv-fleet-scan.test.mjs
+      - run: node --test scripts/fleet-scan.test.mjs
       - name: Deterministic exception-ledger fixture
         env:
-          TJSV_SCAN_FIXTURE: test-fixtures/tjsv-fleet-scan/pass.json
+          TJSV_SCAN_FIXTURE: test-fixtures/fleet-scan/pass.json
         run: node scripts/tjsv-fleet-scan.mjs
       - name: Fixture must not mutate tracked policy
         run: git diff --exit-code HEAD
