@@ -30,6 +30,11 @@ on:
         required: false
         default: "false"
         type: string
+      polymorphic_models_strategy:
+        description: TJSV polymorphic model encoding strategy.
+        required: false
+        default: oneOf
+        type: string
       artifact_name:
         description: Evidence artifact name.
         required: false
@@ -53,13 +58,14 @@ jobs:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
       - name: Run canonical peer-authority parity and fresh Contract IR
-        uses: ORESoftware/typespec-json-schema-validator@a4b731fbf82c4d162abd74fd03758fa32bb76176
+        uses: ORESoftware/typespec-json-schema-validator@4a5d049218adc2740d4cf78f612caf7f38f6f64c
         with:
           typespec: ${{ inputs.typespec }}
           schema: ${{ inputs.schema }}
           instances: ${{ inputs.instances }}
           int64_strategy: ${{ inputs.int64_strategy }}
           seal_object_schemas: ${{ inputs.seal_object_schemas }}
+          polymorphic_models_strategy: ${{ inputs.polymorphic_models_strategy }}
           report: tmp/tjsv-admission/report.json
           sarif: tmp/tjsv-admission/report.sarif
           contract_ir: tmp/tjsv-admission/contract-ir.json
@@ -67,7 +73,7 @@ jobs:
           max_probes: "64"
           quiet: "true"
       - name: Require current-input admission and canonical refusal regressions
-        uses: ORESoftware/typespec-json-schema-validator/actions/test-consumer-admission@a4b731fbf82c4d162abd74fd03758fa32bb76176
+        uses: ORESoftware/typespec-json-schema-validator/actions/test-consumer-admission@4a5d049218adc2740d4cf78f612caf7f38f6f64c
         with:
           contract_ir: tmp/tjsv-admission/contract-ir.json
           report: tmp/tjsv-admission/report.json
@@ -100,5 +106,6 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-# DEN-3828 / zed-pkg/.github#67. TJSV is build-time fail-closed evidence.
+# DEN-3828 / DEN-3982 / zed-pkg/.github#80. TJSV is build-time fail-closed evidence.
 # TypeSpec and authored JSON Schema remain independent peer authorities.
+# The fleet scanner baseline moves only after this reusable workflow is merged and has an immutable merge SHA.
