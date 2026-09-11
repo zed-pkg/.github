@@ -1,0 +1,72 @@
+name: Zed TOML fleet audit
+
+on:
+  pull_request:
+    paths:
+      - "scripts/audit_zed_toml_fleet.py"
+      - "tests/test_audit_zed_toml_fleet.py"
+      - ".github/workflows/zed-toml-fleet-audit.yml"
+  workflow_dispatch:
+  schedule:
+    - cron: "41 8 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: zed-toml-fleet-audit-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out exact candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact candidate
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$EXPECTED_SHA"
+          printf 'validated exact candidate %s\n' "$actual"
+
+      - name: Compile audit code
+        run: python3 -m py_compile scripts/audit_zed_toml_fleet.py tests/test_audit_zed_toml_fleet.py
+
+      - name: Run policy regressions
+        run: python3 -m unittest -v tests/test_audit_zed_toml_fleet.py
+
+      - name: Scan public zed-pkg TOML contracts
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/audit_zed_toml_fleet.py
+
+      - name: Add audit summary
+        if: always()
+        shell: bash
+        run: |
+          if test -f artifacts/zed-toml-fleet-summary.md; then
+            cat artifacts/zed-toml-fleet-summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload deterministic audit evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: zed-toml-fleet-audit-${{ github.run_id }}
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Prove audit did not mutate tracked source
+        if: always()
+        run: git diff --exit-code -- .
