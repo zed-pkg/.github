@@ -2,14 +2,17 @@
 
 import importlib.util
 import pathlib
+import sys
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+MODULE_NAME = "audit_zed_toml_fleet"
 SPEC = importlib.util.spec_from_file_location(
-    "audit_zed_toml_fleet", ROOT / "scripts" / "audit_zed_toml_fleet.py"
+    MODULE_NAME, ROOT / "scripts" / "audit_zed_toml_fleet.py"
 )
 assert SPEC and SPEC.loader
 AUDIT = importlib.util.module_from_spec(SPEC)
+sys.modules[MODULE_NAME] = AUDIT
 SPEC.loader.exec_module(AUDIT)
 
 
