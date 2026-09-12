@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only zed-pkg fleet audit for Zed/flags2env TOML contracts."""
+"""Read-only contract/provenance audit; requires Python 3.11+ and PyYAML 6.0.3."""
 
 from __future__ import annotations
 
@@ -14,11 +14,31 @@ import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
+
+import yaml
 
 ORG = "zed-pkg"
 CANONICAL_FLAG_TYPES = {"array", "bool", "double", "integer", "json", "map", "string"}
 STALE_ZED_CLI = re.compile(r"^\^(?:0\.[012])(?:\.|$)")
+EXACT_RUST_CHANNEL = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
+IMMUTABLE_GITHUB_REF = re.compile(r"^[0-9a-fA-F]{40}$")
+REMOTE_USES = re.compile(
+    r"(?P<target>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_./-]+)?)"
+    r"@(?P<ref>[^\s#]+)"
+)
+MOVING_RUST_PATTERNS = (
+    re.compile(r"\brustup\s+toolchain\s+install\s+(stable|beta|nightly)\b"),
+    re.compile(r"\brustup\s+default\s+(stable|beta|nightly)\b"),
+)
+RUST_WORKFLOW_MARKERS = (
+    "cargo ",
+    "cargo\n",
+    "rustc ",
+    "rustup ",
+    "dtolnay/rust-toolchain@",
+)
+EXACT_RUST_SHELL_PATTERN = "^[0-9]+\\.[0-9]+\\.[0-9]+$"
 
 
 @dataclass(frozen=True)
@@ -32,7 +52,7 @@ class Finding:
 def request_json(url: str, token: str | None) -> Any:
     headers = {
         "Accept": "application/vnd.github+json",
-        "User-Agent": "zed-pkg-toml-audit/1",
+        "User-Agent": "zed-pkg-contract-provenance-audit/2",
         "X-GitHub-Api-Version": "2022-11-28",
     }
     if token:
@@ -50,12 +70,39 @@ def fetch_text(repo: str, path: str, token: str | None) -> str | None:
         if error.code == 404:
             return None
         raise
-    if payload.get("encoding") != "base64":
-        raise RuntimeError(f"{repo}/{path}: unsupported GitHub contents encoding")
+    if not isinstance(payload, dict) or payload.get("encoding") != "base64":
+        raise RuntimeError(f"{repo}/{path}: unsupported GitHub contents payload")
     return base64.b64decode(payload["content"]).decode("utf-8")
 
 
-def walk_flag_tables(value: Any, prefix: str = ""):
+def fetch_workflows(repo: str, token: str | None) -> dict[str, str]:
+    url = f"https://api.github.com/repos/{ORG}/{repo}/contents/.github/workflows"
+    try:
+        payload = request_json(url, token)
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            return {}
+        raise
+    if not isinstance(payload, list):
+        raise RuntimeError(f"{repo}/.github/workflows: expected directory listing")
+
+    workflows: dict[str, str] = {}
+    for item in payload:
+        if not isinstance(item, dict) or item.get("type") != "file":
+            continue
+        name = item.get("name")
+        path = item.get("path")
+        if not isinstance(name, str) or not isinstance(path, str):
+            continue
+        if not name.endswith((".yml", ".yaml")):
+            continue
+        text = fetch_text(repo, path, token)
+        if text is not None:
+            workflows[path] = text
+    return workflows
+
+
+def walk_flag_tables(value: Any, prefix: str = "") -> Iterator[tuple[str, dict[str, Any]]]:
     if isinstance(value, dict):
         if "env" in value and ("type" in value or "aliases" in value):
             yield prefix, value
@@ -117,30 +164,18 @@ def audit_cli_flags(repo: str, text: str, findings: list[Finding]) -> None:
                 owner = root_spellings.get(spelling)
                 if owner and owner != name:
                     findings.append(
-                        Finding(
-                            repo,
-                            "error",
-                            "duplicate-root-spelling",
-                            f"--{spelling}: {owner} and {name}",
-                        )
+                        Finding(repo, "error", "duplicate-root-spelling", f"--{spelling}: {owner} and {name}")
                     )
                 root_spellings[spelling] = name
 
     for location, definition in walk_flag_tables(document):
         if "long" in definition or "switch" in definition:
             findings.append(
-                Finding(
-                    repo,
-                    "error",
-                    "legacy-flags-key",
-                    f"{location} uses unsupported long/switch authoring",
-                )
+                Finding(repo, "error", "legacy-flags-key", f"{location} uses unsupported long/switch authoring")
             )
         kind = definition.get("type")
         if isinstance(kind, str) and kind not in CANONICAL_FLAG_TYPES:
-            findings.append(
-                Finding(repo, "error", "noncanonical-flag-type", f"{location}.type={kind!r}")
-            )
+            findings.append(Finding(repo, "error", "noncanonical-flag-type", f"{location}.type={kind!r}"))
 
 
 def audit_zpkg(repo: str, text: str, cli_exists: bool, findings: list[Finding]) -> None:
@@ -162,9 +197,7 @@ def audit_zpkg(repo: str, text: str, cli_exists: bool, findings: list[Finding]) 
         expected = f"https://github.com/{ORG}/{repo}"
         actual = repository["url"].rstrip("/")
         if actual != expected:
-            findings.append(
-                Finding(repo, "error", "zpkg-repository-drift", f"expected {expected}, got {actual}")
-            )
+            findings.append(Finding(repo, "error", "zpkg-repository-drift", f"expected {expected}, got {actual}"))
 
     cli = document.get("cli")
     if isinstance(cli, dict) and cli.get("flags_runtime") == "flags-2-env":
@@ -183,15 +216,165 @@ def audit_zpkg(repo: str, text: str, cli_exists: bool, findings: list[Finding]) 
     if isinstance(dependencies, dict):
         requirement = dependencies.get("zed-pkg/zed-cli")
         if isinstance(requirement, str) and STALE_ZED_CLI.match(requirement):
-            findings.append(
-                Finding(repo, "error", "stale-zed-cli-range", f"zed-pkg/zed-cli={requirement}")
+            findings.append(Finding(repo, "error", "stale-zed-cli-range", f"zed-pkg/zed-cli={requirement}"))
+
+
+def audit_rust_toolchain(repo: str, text: str, findings: list[Finding]) -> None:
+    try:
+        document = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as error:
+        findings.append(Finding(repo, "error", "rust-toolchain-invalid-toml", str(error)))
+        return
+    toolchain = document.get("toolchain")
+    channel = toolchain.get("channel") if isinstance(toolchain, dict) else None
+    if not isinstance(channel, str) or EXACT_RUST_CHANNEL.fullmatch(channel) is None:
+        findings.append(
+            Finding(
+                repo,
+                "error",
+                "rust-toolchain-not-patch-exact",
+                f"toolchain.channel must be numeric major.minor.patch, got {channel!r}",
             )
+        )
+
+
+def is_rust_workflow(text: str) -> bool:
+    lowered = text.lower()
+    return any(marker in lowered for marker in RUST_WORKFLOW_MARKERS)
+
+
+def workflow_imports_exact_rust_authority(text: str) -> bool:
+    return all(
+        marker in text
+        for marker in (
+            "rust-toolchain.toml",
+            'rustup toolchain install "$toolchain"',
+            "rustc --version",
+            EXACT_RUST_SHELL_PATTERN,
+        )
+    )
+
+
+class WorkflowLoader(yaml.BaseLoader):
+    """Keep YAML scalars as strings, including `on`, without constructing tags."""
+
+    def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> dict:
+        result = {}
+        for key_node, value_node in node.value:
+            key = self.construct_object(key_node, deep=deep)
+            if not isinstance(key, str) or key in result:
+                raise yaml.constructor.ConstructorError(
+                    None, None, "workflow mapping keys must be unique strings", key_node.start_mark
+                )
+            result[key] = self.construct_object(value_node, deep=deep)
+        return result
+
+
+def audit_workflow(
+    repo: str,
+    path: str,
+    text: str,
+    toolchain_exists: bool,
+    findings: list[Finding],
+) -> None:
+    def invalid() -> None:
+        # Do not echo arbitrary source or parser diagnostics into public reports.
+        findings.append(Finding(repo, "error", "workflow-invalid-yaml", f"{path}: invalid workflow structure"))
+
+    try:
+        document = yaml.load(text, Loader=WorkflowLoader)
+    except yaml.YAMLError:
+        invalid()
+        return
+    if not isinstance(document, dict) or not isinstance(document.get("jobs"), dict):
+        invalid()
+        return
+    events = document.get("on", {})
+    if isinstance(events, str):
+        events = [events]
+    if not isinstance(events, (list, dict)):
+        invalid()
+        return
+    is_pr = any(event in events for event in ("pull_request", "pull_request_target"))
+
+    for job_name, job in document["jobs"].items():
+        if not isinstance(job, dict):
+            invalid()
+            return
+        steps = job.get("steps", [])
+        if not isinstance(steps, list) or any(not isinstance(step, dict) for step in steps):
+            invalid()
+            return
+        actions = [job, *steps]
+        if any(
+            not isinstance(action.get("with", {}), dict)
+            or not isinstance(action.get("uses", ""), str)
+            for action in actions
+        ):
+            invalid()
+            return
+        location = f"{path} job {job_name}"
+        for action in actions:
+            match = REMOTE_USES.fullmatch(action.get("uses", ""))
+            if match and IMMUTABLE_GITHUB_REF.fullmatch(match.group("ref")) is None:
+                findings.append(
+                    Finding(
+                        repo,
+                        "error",
+                        "workflow-action-mutable",
+                        f"{location}: {match.group('target')}@{match.group('ref')} is not pinned to a 40-hex commit",
+                    )
+                )
+        if is_pr:
+            for step in steps:
+                if step.get("uses", "").lower().startswith("actions/checkout@"):
+                    value = step.get("with", {}).get("persist-credentials", "")
+                    if not isinstance(value, str) or value.lower() != "false":
+                        findings.append(Finding(
+                            repo, "error", "workflow-checkout-persists-credentials",
+                            f"{location}: pull-request checkout must set persist-credentials: false",
+                        ))
+
+        # Inspect actual step scripts and action inputs, not YAML comments, names,
+        # or apparent `uses:` lines inside a shell block. Shell checks are static
+        # heuristics; only this job may supply its imported toolchain evidence.
+        scripts = "\n".join(
+            line for step in steps if isinstance(step.get("run"), str)
+            for line in step["run"].splitlines() if not line.lstrip().startswith("#")
+        )
+        rust_text = scripts + "\n" + "\n".join(step.get("uses", "") for step in steps)
+        if not is_rust_workflow(rust_text):
+            continue
+        if not toolchain_exists and not workflow_imports_exact_rust_authority(scripts):
+            findings.append(Finding(
+                repo, "error", "rust-workflow-missing-toolchain-authority",
+                f"{location}: Rust job has neither repository nor verified imported rust-toolchain authority",
+            ))
+        for pattern in MOVING_RUST_PATTERNS:
+            match = pattern.search(scripts)
+            if match:
+                findings.append(Finding(
+                    repo, "error", "workflow-rust-toolchain-moving",
+                    f"{location}: moving Rust channel `{match.group(1)}` is active",
+                ))
+        for step in steps:
+            toolchain = step.get("with", {}).get("toolchain")
+            if isinstance(toolchain, str) and toolchain in ("stable", "beta", "nightly"):
+                findings.append(Finding(
+                    repo, "error", "workflow-rust-toolchain-moving",
+                    f"{location}: moving Rust channel `{toolchain}` is active",
+                ))
+            if step.get("uses", "").lower().startswith("dtolnay/rust-toolchain@") and not toolchain:
+                findings.append(Finding(
+                    repo, "error", "workflow-rust-toolchain-implicit-stable",
+                    f"{location}: dtolnay/rust-toolchain omits toolchain and therefore installs moving stable",
+                ))
 
 
 def render_summary(audited: list[dict[str, Any]], findings: list[Finding]) -> str:
     errors = [item for item in findings if item.severity == "error"]
     lines = [
-        "# Zed TOML fleet audit",
+        "# Zed contract and provenance fleet audit",
         "",
         f"- repositories audited: {len(audited)}",
         f"- errors: {len(errors)}",
@@ -238,16 +421,31 @@ def main() -> int:
         name = metadata["name"]
         zpkg = fetch_text(name, ".zpkg.toml", token)
         flags = fetch_text(name, ".cli-flags.toml", token)
-        if zpkg is None and flags is None:
+        rust_toolchain = fetch_text(name, "rust-toolchain.toml", token)
+        workflows = fetch_workflows(name, token)
+        if zpkg is None and flags is None and rust_toolchain is None and not workflows:
             continue
-        audited.append({"repo": name, "zpkg": zpkg is not None, "cli_flags": flags is not None})
+
+        audited.append(
+            {
+                "repo": name,
+                "zpkg": zpkg is not None,
+                "cli_flags": flags is not None,
+                "rust_toolchain": rust_toolchain is not None,
+                "workflow_count": len(workflows),
+            }
+        )
         if flags is not None:
             audit_cli_flags(name, flags, findings)
         if zpkg is not None:
             audit_zpkg(name, zpkg, flags is not None, findings)
+        if rust_toolchain is not None:
+            audit_rust_toolchain(name, rust_toolchain, findings)
+        for path, text in sorted(workflows.items()):
+            audit_workflow(name, path, text, rust_toolchain is not None, findings)
 
     report = {
-        "schema": "zed.toml-fleet-audit/v1",
+        "schema": "zed.contract-provenance-fleet-audit/v2",
         "org": ORG,
         "repositories_audited": audited,
         "finding_count": len(findings),

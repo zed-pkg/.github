@@ -1,4 +1,4 @@
-name: Zed TOML fleet audit
+name: Zed contract and provenance fleet audit
 
 on:
   pull_request:
@@ -14,13 +14,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: zed-toml-fleet-audit-${{ github.event.pull_request.number || github.ref }}
+  group: zed-contract-provenance-fleet-audit-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   audit:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - name: Check out exact candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -39,13 +39,21 @@ jobs:
           test "$actual" = "$EXPECTED_SHA"
           printf 'validated exact candidate %s\n' "$actual"
 
+      - name: Install pinned YAML parser in an isolated environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/zed-audit-venv"
+          "$RUNNER_TEMP/zed-audit-venv/bin/python" -m pip install --disable-pip-version-check PyYAML==6.0.3
+          printf '%s\n' "$RUNNER_TEMP/zed-audit-venv/bin" >> "$GITHUB_PATH"
+
       - name: Compile audit code
         run: python3 -m py_compile scripts/audit_zed_toml_fleet.py tests/test_audit_zed_toml_fleet.py
 
       - name: Run policy regressions
         run: python3 -m unittest -v tests/test_audit_zed_toml_fleet.py
 
-      - name: Scan public zed-pkg TOML contracts
+      - name: Scan public zed-pkg contracts and CI provenance
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: python3 scripts/audit_zed_toml_fleet.py
@@ -62,7 +70,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: zed-toml-fleet-audit-${{ github.run_id }}
+          name: zed-contract-provenance-fleet-audit-${{ github.run_id }}
           path: artifacts/
           if-no-files-found: warn
           retention-days: 14
