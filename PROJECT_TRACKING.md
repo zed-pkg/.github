@@ -1,6 +1,6 @@
 # zed-pkg project tracking
 
-Last verified: 2026-08-05 (GitHub Projects v2 section: 2026-08-08)
+Last verified: 2026-08-20 (GitHub Projects v2 section: 2026-08-08)
 
 This document records only identifiers read from canonical systems. Do not
 infer a project number, channel name, release state, or integration state from
@@ -43,6 +43,28 @@ When updating Linear from GitHub work:
    workflow succeeded; validate the ordinary product-source head.
 5. Keep superseded PRs and branches explicitly identified so stale stacks are
    not merged accidentally.
+
+### Public registry reliability rollout
+
+Zed supplements ecosystem-native package managers; it does not replace them.
+The source-of-truth rollout contract is [Public registry
+reliability](docs/PUBLIC_REGISTRY_RELIABILITY.md). It assigns `zpkg.net` to the
+human site, `api.zpkg.net` to the API, `registry.zpkg.net` to immutable
+artifacts, `app.zpkg.net` to authenticated browser sessions, and
+`user.zpkg.net` to an optional `308` alias.
+
+Linear mirrors the live incident and promotion gates in [Public registry
+reliability, R2 mirroring, and incident recovery —
+2026-08-20](https://linear.app/denman/document/public-registry-reliability-r2-mirroring-and-incident-recovery-2026-08-5f461fd0bb83).
+
+The 2026-08-20 live observation is a failure baseline: the two configured
+machine endpoints returned Cloudflare Tunnel error `1033`, the two requested
+browser names had no DNS, and the latest visible AWS/Hetzner deployment run
+failed before apply because protected deployment inputs were absent. Linear
+must remain in progress until its update links the exact reviewed heads and
+records separate owners for DNS/control-plane access, both cluster deployment
+identities, production SOPS recovery recipients, metadata-database authority,
+R2/mirror verification, and test-organization certification.
 
 ## GitHub Projects v2
 

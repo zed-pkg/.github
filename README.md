@@ -4,10 +4,19 @@ This public `.github` repository contains organization-wide community health fil
 
 Repository-local policy wins when it is stricter or more specific. Existing project history must be preserved during consolidation and conflict resolution.
 
+Zed supplements ecosystem-native package managers; it does not replace them.
+
+The reviewed public-service contract is documented in [Public registry
+reliability](docs/PUBLIC_REGISTRY_RELIABILITY.md), including the canonical
+`zpkg.net`, `api.zpkg.net`, `registry.zpkg.net`, `app.zpkg.net`, and
+`user.zpkg.net` roles, dual-cluster readiness gates, artifact mirroring, and
+the exact SOPS ciphertext-to-plaintext path contract.
+
 ## Canonical service/data architecture
 
 - [`*-lib-core` data plane and Rust web/API boundary](LIB_CORE_AND_SERVICE_BOUNDARIES.md)
 - [Full service and data architecture](SERVICE_AND_DATA_ARCHITECTURE.md)
+- [Public registry reliability and recovery contract](docs/PUBLIC_REGISTRY_RELIABILITY.md)
 
 <!-- ore-org-baseline:begin -->
 ## Organization-wide defaults

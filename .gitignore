@@ -18,8 +18,7 @@ __pycache__/
 # Decrypted material is never tracked.
 /env/dec/
 
-# Only the two approved ciphertext files are trackable.
+# Only ciphertext matching the organization-wide encrypted-profile contract is trackable.
 /env/enc/*
-!/env/enc/dev.env.enc
-!/env/enc/prod.env.enc
+!/env/enc/*.env.enc
 # END ores-sops dotenv policy
