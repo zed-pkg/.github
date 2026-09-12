@@ -39,6 +39,7 @@ RUST_WORKFLOW_MARKERS = (
     "rustup ",
     "dtolnay/rust-toolchain@",
 )
+EXACT_RUST_SHELL_PATTERN = "^[0-9]+\\.[0-9]+\\.[0-9]+$"
 
 
 @dataclass(frozen=True)
@@ -164,24 +165,14 @@ def audit_cli_flags(repo: str, text: str, findings: list[Finding]) -> None:
                 owner = root_spellings.get(spelling)
                 if owner and owner != name:
                     findings.append(
-                        Finding(
-                            repo,
-                            "error",
-                            "duplicate-root-spelling",
-                            f"--{spelling}: {owner} and {name}",
-                        )
+                        Finding(repo, "error", "duplicate-root-spelling", f"--{spelling}: {owner} and {name}")
                     )
                 root_spellings[spelling] = name
 
     for location, definition in walk_flag_tables(document):
         if "long" in definition or "switch" in definition:
             findings.append(
-                Finding(
-                    repo,
-                    "error",
-                    "legacy-flags-key",
-                    f"{location} uses unsupported long/switch authoring",
-                )
+                Finding(repo, "error", "legacy-flags-key", f"{location} uses unsupported long/switch authoring")
             )
         kind = definition.get("type")
         if isinstance(kind, str) and kind not in CANONICAL_FLAG_TYPES:
@@ -253,6 +244,18 @@ def is_rust_workflow(text: str) -> bool:
     return any(marker in lowered for marker in RUST_WORKFLOW_MARKERS)
 
 
+def workflow_imports_exact_rust_authority(text: str) -> bool:
+    return all(
+        marker in text
+        for marker in (
+            "rust-toolchain.toml",
+            'rustup toolchain install "$toolchain"',
+            "rustc --version",
+            EXACT_RUST_SHELL_PATTERN,
+        )
+    )
+
+
 def step_blocks_for_action(text: str, action_prefix: str) -> Iterator[str]:
     lines = text.splitlines()
     matcher = re.compile(rf"^\s*(?:-\s*)?uses:\s*{re.escape(action_prefix)}", re.IGNORECASE)
@@ -306,13 +309,14 @@ def audit_workflow(
     if not is_rust_workflow(text):
         return
 
-    if not toolchain_exists:
+    imported_authority = workflow_imports_exact_rust_authority(text)
+    if not toolchain_exists and not imported_authority:
         findings.append(
             Finding(
                 repo,
                 "error",
                 "rust-workflow-missing-toolchain-authority",
-                f"{path}: Rust workflow has no repository rust-toolchain.toml authority",
+                f"{path}: Rust workflow has neither repository nor verified imported rust-toolchain authority",
             )
         )
 
