@@ -131,6 +131,143 @@ flags_contract = ".cli-flags.toml"
         self.assertIsNone(AUDIT.STALE_ZED_CLI.match("=0.3.0"))
         self.assertIsNotNone(AUDIT.STALE_ZED_CLI.match("^0.2.3"))
 
+    def test_patch_exact_rust_toolchain_passes_and_moving_channel_fails(self):
+        findings = []
+        AUDIT.audit_rust_toolchain(
+            "demo",
+            '[toolchain]\nchannel = "1.98.1"\ncomponents = ["rustfmt", "clippy"]\n',
+            findings,
+        )
+        self.assertEqual(findings, [])
+
+        AUDIT.audit_rust_toolchain(
+            "demo",
+            '[toolchain]\nchannel = "stable"\n',
+            findings,
+        )
+        self.assertEqual(findings[-1].code, "rust-toolchain-not-patch-exact")
+
+    def test_canonical_rust_pr_workflow_passes_provenance_audit(self):
+        findings = []
+        AUDIT.audit_workflow(
+            "demo",
+            ".github/workflows/ci.yml",
+            """
+name: ci
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    steps:
+      - name: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: rust
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+        with:
+          toolchain: 1.98.1
+      - run: cargo test --locked
+""",
+            True,
+            findings,
+        )
+        self.assertEqual(findings, [])
+
+    def test_workflow_rejects_mutable_actions_credentials_and_moving_rust(self):
+        findings = []
+        AUDIT.audit_workflow(
+            "demo",
+            ".github/workflows/ci.yml",
+            """
+name: ci
+on:
+  pull_request:
+jobs:
+  test:
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+      - run: rustup default stable && cargo test
+""",
+            False,
+            findings,
+        )
+        codes = {item.code for item in findings}
+        self.assertTrue(
+            {
+                "workflow-action-mutable",
+                "workflow-checkout-persists-credentials",
+                "rust-workflow-missing-toolchain-authority",
+                "workflow-rust-toolchain-moving",
+            }.issubset(codes)
+        )
+
+    def test_bare_rust_toolchain_action_is_implicit_stable(self):
+        findings = []
+        AUDIT.audit_workflow(
+            "demo",
+            ".github/workflows/ci.yml",
+            """
+name: ci
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    steps:
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+      - run: cargo check --locked
+""",
+            True,
+            findings,
+        )
+        self.assertEqual(
+            [item.code for item in findings],
+            ["workflow-rust-toolchain-implicit-stable"],
+        )
+
+    def test_non_rust_workflow_does_not_require_rust_authority(self):
+        findings = []
+        AUDIT.audit_workflow(
+            "demo",
+            ".github/workflows/docs.yml",
+            """
+name: docs
+on:
+  workflow_dispatch:
+jobs:
+  docs:
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - run: node scripts/docs.mjs
+""",
+            False,
+            findings,
+        )
+        self.assertEqual(findings, [])
+
+    def test_remote_reusable_workflow_must_be_commit_pinned(self):
+        findings = []
+        AUDIT.audit_workflow(
+            "demo",
+            ".github/workflows/reuse.yml",
+            """
+name: reuse
+on:
+  workflow_dispatch:
+jobs:
+  shared:
+    uses: zed-pkg/.github/.github/workflows/shared.yml@main
+""",
+            False,
+            findings,
+        )
+        self.assertEqual([item.code for item in findings], ["workflow-action-mutable"])
+
 
 if __name__ == "__main__":
     unittest.main()
