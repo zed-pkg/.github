@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only zed-pkg fleet audit for contracts and CI provenance."""
+"""Read-only contract/provenance audit; requires Python 3.11+ and PyYAML 6.0.3."""
 
 from __future__ import annotations
 
@@ -16,19 +16,18 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Iterator
 
+import yaml
+
 ORG = "zed-pkg"
 CANONICAL_FLAG_TYPES = {"array", "bool", "double", "integer", "json", "map", "string"}
 STALE_ZED_CLI = re.compile(r"^\^(?:0\.[012])(?:\.|$)")
 EXACT_RUST_CHANNEL = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 IMMUTABLE_GITHUB_REF = re.compile(r"^[0-9a-fA-F]{40}$")
 REMOTE_USES = re.compile(
-    r"(?m)^\s*(?:-\s*)?uses:\s*"
     r"(?P<target>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_./-]+)?)"
     r"@(?P<ref>[^\s#]+)"
 )
-PULL_REQUEST_EVENT = re.compile(r"(?m)^\s*pull_request(?:_target)?:")
 MOVING_RUST_PATTERNS = (
-    re.compile(r"(?m)^\s*toolchain:\s*(stable|beta|nightly)\s*(?:#.*)?$"),
     re.compile(r"\brustup\s+toolchain\s+install\s+(stable|beta|nightly)\b"),
     re.compile(r"\brustup\s+default\s+(stable|beta|nightly)\b"),
 )
@@ -256,23 +255,19 @@ def workflow_imports_exact_rust_authority(text: str) -> bool:
     )
 
 
-def step_blocks_for_action(text: str, action_prefix: str) -> Iterator[str]:
-    lines = text.splitlines()
-    matcher = re.compile(rf"^\s*(?:-\s*)?uses:\s*{re.escape(action_prefix)}", re.IGNORECASE)
-    for index, line in enumerate(lines):
-        if matcher.search(line) is None:
-            continue
-        indent = len(line) - len(line.lstrip())
-        block = [line]
-        for following in lines[index + 1 :]:
-            stripped = following.lstrip()
-            following_indent = len(following) - len(stripped)
-            if stripped.startswith("- ") and following_indent < indent:
-                break
-            if stripped and following_indent < indent and not stripped.startswith("#"):
-                break
-            block.append(following)
-        yield "\n".join(block)
+class WorkflowLoader(yaml.BaseLoader):
+    """Keep YAML scalars as strings, including `on`, without constructing tags."""
+
+    def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> dict:
+        result = {}
+        for key_node, value_node in node.value:
+            key = self.construct_object(key_node, deep=deep)
+            if not isinstance(key, str) or key in result:
+                raise yaml.constructor.ConstructorError(
+                    None, None, "workflow mapping keys must be unique strings", key_node.start_mark
+                )
+            result[key] = self.construct_object(value_node, deep=deep)
+        return result
 
 
 def audit_workflow(
@@ -282,66 +277,98 @@ def audit_workflow(
     toolchain_exists: bool,
     findings: list[Finding],
 ) -> None:
-    for match in REMOTE_USES.finditer(text):
-        ref = match.group("ref")
-        if IMMUTABLE_GITHUB_REF.fullmatch(ref) is None:
-            findings.append(
-                Finding(
-                    repo,
-                    "error",
-                    "workflow-action-mutable",
-                    f"{path}: {match.group('target')}@{ref} is not pinned to a 40-hex commit",
-                )
-            )
+    def invalid() -> None:
+        # Do not echo arbitrary source or parser diagnostics into public reports.
+        findings.append(Finding(repo, "error", "workflow-invalid-yaml", f"{path}: invalid workflow structure"))
 
-    if PULL_REQUEST_EVENT.search(text):
-        for block in step_blocks_for_action(text, "actions/checkout@"):
-            if "persist-credentials: false" not in block:
+    try:
+        document = yaml.load(text, Loader=WorkflowLoader)
+    except yaml.YAMLError:
+        invalid()
+        return
+    if not isinstance(document, dict) or not isinstance(document.get("jobs"), dict):
+        invalid()
+        return
+    events = document.get("on", {})
+    if isinstance(events, str):
+        events = [events]
+    if not isinstance(events, (list, dict)):
+        invalid()
+        return
+    is_pr = any(event in events for event in ("pull_request", "pull_request_target"))
+
+    for job_name, job in document["jobs"].items():
+        if not isinstance(job, dict):
+            invalid()
+            return
+        steps = job.get("steps", [])
+        if not isinstance(steps, list) or any(not isinstance(step, dict) for step in steps):
+            invalid()
+            return
+        actions = [job, *steps]
+        if any(
+            not isinstance(action.get("with", {}), dict)
+            or not isinstance(action.get("uses", ""), str)
+            for action in actions
+        ):
+            invalid()
+            return
+        location = f"{path} job {job_name}"
+        for action in actions:
+            match = REMOTE_USES.fullmatch(action.get("uses", ""))
+            if match and IMMUTABLE_GITHUB_REF.fullmatch(match.group("ref")) is None:
                 findings.append(
                     Finding(
                         repo,
                         "error",
-                        "workflow-checkout-persists-credentials",
-                        f"{path}: pull-request checkout must set persist-credentials: false",
+                        "workflow-action-mutable",
+                        f"{location}: {match.group('target')}@{match.group('ref')} is not pinned to a 40-hex commit",
                     )
                 )
+        if is_pr:
+            for step in steps:
+                if step.get("uses", "").lower().startswith("actions/checkout@"):
+                    value = step.get("with", {}).get("persist-credentials", "")
+                    if not isinstance(value, str) or value.lower() != "false":
+                        findings.append(Finding(
+                            repo, "error", "workflow-checkout-persists-credentials",
+                            f"{location}: pull-request checkout must set persist-credentials: false",
+                        ))
 
-    if not is_rust_workflow(text):
-        return
-
-    imported_authority = workflow_imports_exact_rust_authority(text)
-    if not toolchain_exists and not imported_authority:
-        findings.append(
-            Finding(
-                repo,
-                "error",
-                "rust-workflow-missing-toolchain-authority",
-                f"{path}: Rust workflow has neither repository nor verified imported rust-toolchain authority",
-            )
+        # Inspect actual step scripts and action inputs, not YAML comments, names,
+        # or apparent `uses:` lines inside a shell block. Shell checks are static
+        # heuristics; only this job may supply its imported toolchain evidence.
+        scripts = "\n".join(
+            line for step in steps if isinstance(step.get("run"), str)
+            for line in step["run"].splitlines() if not line.lstrip().startswith("#")
         )
-
-    for pattern in MOVING_RUST_PATTERNS:
-        match = pattern.search(text)
-        if match:
-            findings.append(
-                Finding(
-                    repo,
-                    "error",
-                    "workflow-rust-toolchain-moving",
-                    f"{path}: moving Rust channel `{match.group(1)}` is active",
-                )
-            )
-
-    for block in step_blocks_for_action(text, "dtolnay/rust-toolchain@"):
-        if re.search(r"(?m)^\s*toolchain:\s*", block) is None:
-            findings.append(
-                Finding(
-                    repo,
-                    "error",
-                    "workflow-rust-toolchain-implicit-stable",
-                    f"{path}: dtolnay/rust-toolchain omits toolchain and therefore installs moving stable",
-                )
-            )
+        rust_text = scripts + "\n" + "\n".join(step.get("uses", "") for step in steps)
+        if not is_rust_workflow(rust_text):
+            continue
+        if not toolchain_exists and not workflow_imports_exact_rust_authority(scripts):
+            findings.append(Finding(
+                repo, "error", "rust-workflow-missing-toolchain-authority",
+                f"{location}: Rust job has neither repository nor verified imported rust-toolchain authority",
+            ))
+        for pattern in MOVING_RUST_PATTERNS:
+            match = pattern.search(scripts)
+            if match:
+                findings.append(Finding(
+                    repo, "error", "workflow-rust-toolchain-moving",
+                    f"{location}: moving Rust channel `{match.group(1)}` is active",
+                ))
+        for step in steps:
+            toolchain = step.get("with", {}).get("toolchain")
+            if isinstance(toolchain, str) and toolchain in ("stable", "beta", "nightly"):
+                findings.append(Finding(
+                    repo, "error", "workflow-rust-toolchain-moving",
+                    f"{location}: moving Rust channel `{toolchain}` is active",
+                ))
+            if step.get("uses", "").lower().startswith("dtolnay/rust-toolchain@") and not toolchain:
+                findings.append(Finding(
+                    repo, "error", "workflow-rust-toolchain-implicit-stable",
+                    f"{location}: dtolnay/rust-toolchain omits toolchain and therefore installs moving stable",
+                ))
 
 
 def render_summary(audited: list[dict[str, Any]], findings: list[Finding]) -> str:

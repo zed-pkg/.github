@@ -323,5 +323,133 @@ jobs:
         self.assertEqual([item.code for item in findings], ["workflow-action-mutable"])
 
 
+    def test_adjacent_checkouts_cannot_share_credential_settings(self):
+        findings = []
+        AUDIT.audit_workflow("demo", "ci.yml", """
+on:
+  pull_request:
+jobs:
+  test:
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+""", False, findings)
+        self.assertEqual([f.code for f in findings], ["workflow-checkout-persists-credentials"])
+
+    def test_inline_events_and_quoted_actions_are_audited(self):
+        for event in ("pull_request", "[push, pull_request]", "{pull_request_target: {}}"):
+            with self.subTest(event=event):
+                findings = []
+                AUDIT.audit_workflow("demo", "ci.yml", f"""
+on: {event}
+jobs:
+  test:
+    steps:
+      - {{uses: "actions/checkout@v7"}}
+""", False, findings)
+                self.assertEqual({f.code for f in findings}, {
+                    "workflow-action-mutable", "workflow-checkout-persists-credentials",
+                })
+
+    def test_comments_cannot_disable_credential_check(self):
+        findings = []
+        AUDIT.audit_workflow("demo", "ci.yml", """
+on:
+  pull_request:
+jobs:
+  test:
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        # persist-credentials: false
+""", False, findings)
+        self.assertEqual([f.code for f in findings], ["workflow-checkout-persists-credentials"])
+
+    def test_step_shaped_script_text_is_not_a_workflow_action(self):
+        findings = []
+        AUDIT.audit_workflow("demo", "ci.yml", """
+on: pull_request
+jobs:
+  docs:
+    steps:
+      - name: document cargo test usage
+        run: |
+          # cargo test is documented, not executed by this job.
+          cat <<'EXAMPLE'
+          uses: actions/checkout@v7
+          EXAMPLE
+""", False, findings)
+        self.assertEqual(findings, [])
+
+    def test_rust_action_cannot_use_a_following_steps_input(self):
+        findings = []
+        AUDIT.audit_workflow("demo", "ci.yml", """
+on: workflow_dispatch
+jobs:
+  test:
+    steps:
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+      - uses: ./some-local-action
+        with:
+          toolchain: 1.98.1
+""", True, findings)
+        self.assertEqual([f.code for f in findings], ["workflow-rust-toolchain-implicit-stable"])
+
+    def test_quoted_moving_rust_input_is_rejected(self):
+        findings = []
+        AUDIT.audit_workflow("demo", "ci.yml", """
+on: workflow_dispatch
+jobs:
+  test:
+    steps:
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+        with: {toolchain: "stable"}
+""", True, findings)
+        self.assertEqual([f.code for f in findings], ["workflow-rust-toolchain-moving"])
+
+    def test_flow_mapping_and_alias_preserve_explicit_false(self):
+        findings = []
+        AUDIT.audit_workflow("demo", "ci.yml", """
+on: [pull_request]
+jobs:
+  test:
+    steps:
+      - &checkout {uses: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1', with: {persist-credentials: false}}
+      - *checkout
+""", False, findings)
+        self.assertEqual(findings, [])
+
+    def test_invalid_workflow_is_reported_without_parser_crash(self):
+        for text in (
+            "jobs: [", "- not-a-workflow", "jobs: {test: {steps: wrong}}",
+            "jobs: {unsafe: {steps: []}}\njobs: {safe: {steps: []}}",
+        ):
+            with self.subTest(text=text):
+                findings = []
+                AUDIT.audit_workflow("demo", "ci.yml", text, False, findings)
+                self.assertEqual([f.code for f in findings], ["workflow-invalid-yaml"])
+
+    def test_imported_rust_authority_cannot_be_borrowed_from_another_job(self):
+        findings = []
+        AUDIT.audit_workflow("demo", "ci.yml", r"""
+on: workflow_dispatch
+jobs:
+  verified:
+    steps:
+      - run: |
+          toolchain=$(python3 scripts/read-toolchain.py rust-toolchain.toml)
+          [[ "$toolchain" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          rustup toolchain install "$toolchain"
+          test "$(rustc --version)" = "$expected_version"
+          cargo test
+  unverified:
+    steps:
+      - run: cargo test
+""", False, findings)
+        self.assertEqual([f.code for f in findings], ["rust-workflow-missing-toolchain-authority"])
+        self.assertIn("job unverified", findings[0].detail)
+
+
 if __name__ == "__main__":
     unittest.main()

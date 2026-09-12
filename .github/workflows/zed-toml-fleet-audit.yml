@@ -39,6 +39,14 @@ jobs:
           test "$actual" = "$EXPECTED_SHA"
           printf 'validated exact candidate %s\n' "$actual"
 
+      - name: Install pinned YAML parser in an isolated environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/zed-audit-venv"
+          "$RUNNER_TEMP/zed-audit-venv/bin/python" -m pip install --disable-pip-version-check PyYAML==6.0.3
+          printf '%s\n' "$RUNNER_TEMP/zed-audit-venv/bin" >> "$GITHUB_PATH"
+
       - name: Compile audit code
         run: python3 -m py_compile scripts/audit_zed_toml_fleet.py tests/test_audit_zed_toml_fleet.py
 
