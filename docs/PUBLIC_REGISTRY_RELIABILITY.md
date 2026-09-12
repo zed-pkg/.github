@@ -6,7 +6,9 @@ Canonical planning project: [`github.com/zed-pkg`](https://linear.app/denman/pro
 
 Linear incident document: [Public registry reliability, R2 mirroring, and incident recovery — 2026-08-20](https://linear.app/denman/document/public-registry-reliability-r2-mirroring-and-incident-recovery-2026-08-5f461fd0bb83)
 
-Last live observation: 2026-08-20 America/Los_Angeles
+Historical incident observation: 2026-08-20 America/Los_Angeles. This document
+does not establish the current service status; each promotion requires fresh
+operational evidence for its exact release.
 
 ## Product boundary
 
@@ -143,8 +145,8 @@ The standard interface is:
 ```sh
 nix develop --command just env-edit <profile>
 nix develop --command just env-use <profile>
-nix develop --command just env-diff <profile>
-nix develop --command just env-encrypt <profile>
+nix develop --command just env-status
+nix develop --command just env-enc <profile>
 nix develop --command just env-verify
 nix develop --command just env-lock
 ```
@@ -167,19 +169,21 @@ Promotion is additive and proceeds in this order:
 3. Run the serialized migration once and verify the schema revision from the
    secondary cluster.
 4. Certify each direct cloud origin independently: publish in an approved test
-   organization, fetch metadata, download, verify SHA-256, install, erase the
-   local cache, and frozen-reinstall with a byte-identical lock.
+   organization, fetch metadata, download, verify SHA-256, install, and
+   frozen-reinstall into a separate empty cache with a byte-identical lock.
+   Preserve the original cache and certification evidence.
 5. Disable one compute origin and repeat read/install certification through the
    other. Disable the primary artifact path and prove only a verified mirror is
    selected.
 6. Route the canonical hosts only after both direct origins, storage paths,
    authentication, rate limits, TLS, and monitoring pass.
 
-Rollback is a reviewed GitOps revision or removal of one unhealthy edge pool.
+Rollback is a reviewed GitOps revision or disabling traffic to an unhealthy
+origin while preserving the origin configuration and its evidence.
 It is not deletion of ingress, namespaces, artifacts, metadata, or audit
 evidence.
 
-## Current evidence and blockers
+## Historical incident baseline and promotion gates
 
 The 2026-08-20 observation is a failure baseline, not deployment evidence:
 
