@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only zed-pkg fleet audit for Zed/flags2env TOML contracts."""
+"""Read-only zed-pkg fleet audit for contracts and CI provenance."""
 
 from __future__ import annotations
 
@@ -14,11 +14,31 @@ import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 ORG = "zed-pkg"
 CANONICAL_FLAG_TYPES = {"array", "bool", "double", "integer", "json", "map", "string"}
 STALE_ZED_CLI = re.compile(r"^\^(?:0\.[012])(?:\.|$)")
+EXACT_RUST_CHANNEL = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
+IMMUTABLE_GITHUB_REF = re.compile(r"^[0-9a-fA-F]{40}$")
+REMOTE_USES = re.compile(
+    r"(?m)^\s*(?:-\s*)?uses:\s*"
+    r"(?P<target>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_./-]+)?)"
+    r"@(?P<ref>[^\s#]+)"
+)
+PULL_REQUEST_EVENT = re.compile(r"(?m)^\s*pull_request(?:_target)?:")
+MOVING_RUST_PATTERNS = (
+    re.compile(r"(?m)^\s*toolchain:\s*(stable|beta|nightly)\s*(?:#.*)?$"),
+    re.compile(r"\brustup\s+toolchain\s+install\s+(stable|beta|nightly)\b"),
+    re.compile(r"\brustup\s+default\s+(stable|beta|nightly)\b"),
+)
+RUST_WORKFLOW_MARKERS = (
+    "cargo ",
+    "cargo\n",
+    "rustc ",
+    "rustup ",
+    "dtolnay/rust-toolchain@",
+)
 
 
 @dataclass(frozen=True)
@@ -32,7 +52,7 @@ class Finding:
 def request_json(url: str, token: str | None) -> Any:
     headers = {
         "Accept": "application/vnd.github+json",
-        "User-Agent": "zed-pkg-toml-audit/1",
+        "User-Agent": "zed-pkg-contract-provenance-audit/2",
         "X-GitHub-Api-Version": "2022-11-28",
     }
     if token:
@@ -50,12 +70,39 @@ def fetch_text(repo: str, path: str, token: str | None) -> str | None:
         if error.code == 404:
             return None
         raise
-    if payload.get("encoding") != "base64":
-        raise RuntimeError(f"{repo}/{path}: unsupported GitHub contents encoding")
+    if not isinstance(payload, dict) or payload.get("encoding") != "base64":
+        raise RuntimeError(f"{repo}/{path}: unsupported GitHub contents payload")
     return base64.b64decode(payload["content"]).decode("utf-8")
 
 
-def walk_flag_tables(value: Any, prefix: str = ""):
+def fetch_workflows(repo: str, token: str | None) -> dict[str, str]:
+    url = f"https://api.github.com/repos/{ORG}/{repo}/contents/.github/workflows"
+    try:
+        payload = request_json(url, token)
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            return {}
+        raise
+    if not isinstance(payload, list):
+        raise RuntimeError(f"{repo}/.github/workflows: expected directory listing")
+
+    workflows: dict[str, str] = {}
+    for item in payload:
+        if not isinstance(item, dict) or item.get("type") != "file":
+            continue
+        name = item.get("name")
+        path = item.get("path")
+        if not isinstance(name, str) or not isinstance(path, str):
+            continue
+        if not name.endswith((".yml", ".yaml")):
+            continue
+        text = fetch_text(repo, path, token)
+        if text is not None:
+            workflows[path] = text
+    return workflows
+
+
+def walk_flag_tables(value: Any, prefix: str = "") -> Iterator[tuple[str, dict[str, Any]]]:
     if isinstance(value, dict):
         if "env" in value and ("type" in value or "aliases" in value):
             yield prefix, value
@@ -138,9 +185,7 @@ def audit_cli_flags(repo: str, text: str, findings: list[Finding]) -> None:
             )
         kind = definition.get("type")
         if isinstance(kind, str) and kind not in CANONICAL_FLAG_TYPES:
-            findings.append(
-                Finding(repo, "error", "noncanonical-flag-type", f"{location}.type={kind!r}")
-            )
+            findings.append(Finding(repo, "error", "noncanonical-flag-type", f"{location}.type={kind!r}"))
 
 
 def audit_zpkg(repo: str, text: str, cli_exists: bool, findings: list[Finding]) -> None:
@@ -162,9 +207,7 @@ def audit_zpkg(repo: str, text: str, cli_exists: bool, findings: list[Finding]) 
         expected = f"https://github.com/{ORG}/{repo}"
         actual = repository["url"].rstrip("/")
         if actual != expected:
-            findings.append(
-                Finding(repo, "error", "zpkg-repository-drift", f"expected {expected}, got {actual}")
-            )
+            findings.append(Finding(repo, "error", "zpkg-repository-drift", f"expected {expected}, got {actual}"))
 
     cli = document.get("cli")
     if isinstance(cli, dict) and cli.get("flags_runtime") == "flags-2-env":
@@ -183,15 +226,124 @@ def audit_zpkg(repo: str, text: str, cli_exists: bool, findings: list[Finding]) 
     if isinstance(dependencies, dict):
         requirement = dependencies.get("zed-pkg/zed-cli")
         if isinstance(requirement, str) and STALE_ZED_CLI.match(requirement):
+            findings.append(Finding(repo, "error", "stale-zed-cli-range", f"zed-pkg/zed-cli={requirement}"))
+
+
+def audit_rust_toolchain(repo: str, text: str, findings: list[Finding]) -> None:
+    try:
+        document = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as error:
+        findings.append(Finding(repo, "error", "rust-toolchain-invalid-toml", str(error)))
+        return
+    toolchain = document.get("toolchain")
+    channel = toolchain.get("channel") if isinstance(toolchain, dict) else None
+    if not isinstance(channel, str) or EXACT_RUST_CHANNEL.fullmatch(channel) is None:
+        findings.append(
+            Finding(
+                repo,
+                "error",
+                "rust-toolchain-not-patch-exact",
+                f"toolchain.channel must be numeric major.minor.patch, got {channel!r}",
+            )
+        )
+
+
+def is_rust_workflow(text: str) -> bool:
+    lowered = text.lower()
+    return any(marker in lowered for marker in RUST_WORKFLOW_MARKERS)
+
+
+def step_blocks_for_action(text: str, action_prefix: str) -> Iterator[str]:
+    lines = text.splitlines()
+    matcher = re.compile(rf"^\s*(?:-\s*)?uses:\s*{re.escape(action_prefix)}", re.IGNORECASE)
+    for index, line in enumerate(lines):
+        if matcher.search(line) is None:
+            continue
+        indent = len(line) - len(line.lstrip())
+        block = [line]
+        for following in lines[index + 1 :]:
+            stripped = following.lstrip()
+            following_indent = len(following) - len(stripped)
+            if stripped.startswith("- ") and following_indent < indent:
+                break
+            if stripped and following_indent < indent and not stripped.startswith("#"):
+                break
+            block.append(following)
+        yield "\n".join(block)
+
+
+def audit_workflow(
+    repo: str,
+    path: str,
+    text: str,
+    toolchain_exists: bool,
+    findings: list[Finding],
+) -> None:
+    for match in REMOTE_USES.finditer(text):
+        ref = match.group("ref")
+        if IMMUTABLE_GITHUB_REF.fullmatch(ref) is None:
             findings.append(
-                Finding(repo, "error", "stale-zed-cli-range", f"zed-pkg/zed-cli={requirement}")
+                Finding(
+                    repo,
+                    "error",
+                    "workflow-action-mutable",
+                    f"{path}: {match.group('target')}@{ref} is not pinned to a 40-hex commit",
+                )
+            )
+
+    if PULL_REQUEST_EVENT.search(text):
+        for block in step_blocks_for_action(text, "actions/checkout@"):
+            if "persist-credentials: false" not in block:
+                findings.append(
+                    Finding(
+                        repo,
+                        "error",
+                        "workflow-checkout-persists-credentials",
+                        f"{path}: pull-request checkout must set persist-credentials: false",
+                    )
+                )
+
+    if not is_rust_workflow(text):
+        return
+
+    if not toolchain_exists:
+        findings.append(
+            Finding(
+                repo,
+                "error",
+                "rust-workflow-missing-toolchain-authority",
+                f"{path}: Rust workflow has no repository rust-toolchain.toml authority",
+            )
+        )
+
+    for pattern in MOVING_RUST_PATTERNS:
+        match = pattern.search(text)
+        if match:
+            findings.append(
+                Finding(
+                    repo,
+                    "error",
+                    "workflow-rust-toolchain-moving",
+                    f"{path}: moving Rust channel `{match.group(1)}` is active",
+                )
+            )
+
+    for block in step_blocks_for_action(text, "dtolnay/rust-toolchain@"):
+        if re.search(r"(?m)^\s*toolchain:\s*", block) is None:
+            findings.append(
+                Finding(
+                    repo,
+                    "error",
+                    "workflow-rust-toolchain-implicit-stable",
+                    f"{path}: dtolnay/rust-toolchain omits toolchain and therefore installs moving stable",
+                )
             )
 
 
 def render_summary(audited: list[dict[str, Any]], findings: list[Finding]) -> str:
     errors = [item for item in findings if item.severity == "error"]
     lines = [
-        "# Zed TOML fleet audit",
+        "# Zed contract and provenance fleet audit",
         "",
         f"- repositories audited: {len(audited)}",
         f"- errors: {len(errors)}",
@@ -238,16 +390,31 @@ def main() -> int:
         name = metadata["name"]
         zpkg = fetch_text(name, ".zpkg.toml", token)
         flags = fetch_text(name, ".cli-flags.toml", token)
-        if zpkg is None and flags is None:
+        rust_toolchain = fetch_text(name, "rust-toolchain.toml", token)
+        workflows = fetch_workflows(name, token)
+        if zpkg is None and flags is None and rust_toolchain is None and not workflows:
             continue
-        audited.append({"repo": name, "zpkg": zpkg is not None, "cli_flags": flags is not None})
+
+        audited.append(
+            {
+                "repo": name,
+                "zpkg": zpkg is not None,
+                "cli_flags": flags is not None,
+                "rust_toolchain": rust_toolchain is not None,
+                "workflow_count": len(workflows),
+            }
+        )
         if flags is not None:
             audit_cli_flags(name, flags, findings)
         if zpkg is not None:
             audit_zpkg(name, zpkg, flags is not None, findings)
+        if rust_toolchain is not None:
+            audit_rust_toolchain(name, rust_toolchain, findings)
+        for path, text in sorted(workflows.items()):
+            audit_workflow(name, path, text, rust_toolchain is not None, findings)
 
     report = {
-        "schema": "zed.toml-fleet-audit/v1",
+        "schema": "zed.contract-provenance-fleet-audit/v2",
         "org": ORG,
         "repositories_audited": audited,
         "finding_count": len(findings),
