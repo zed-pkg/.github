@@ -1,0 +1,35 @@
+{
+  "schema": "zed.tjsv-fleet-policy/v1",
+  "organization": "zed-pkg",
+  "currentValidatorRevision": "4a5d049218adc2740d4cf78f612caf7f38f6f64c",
+  "reusableWorkflowRepository": "zed-pkg/.github",
+  "reusableWorkflowRevision": "4eb44b4d5ea606137a3b9dfa6572ed2a77185605",
+  "requiredConsumers": [
+    "zed-pkg/zed-interfaces",
+    "zed-pkg/zed-lib-core",
+    "zed-pkg/zed-orm-core",
+    "zed-pkg/zed-clients",
+    "zed-pkg/zed-pub-lib-core"
+  ],
+  "minimumCapabilities": [
+    "independent-typespec-json-schema-peer-authorities",
+    "fresh-contract-ir",
+    "dense-declaration-inventory",
+    "current-input-consumer-verification",
+    "canonical-refusal-probes",
+    "null-safe-conditional-witnesses",
+    "language-boundary-schema-runtime-lockstep",
+    "runtime-evidence-v2-privacy",
+    "qualified-nested-namespace-identity",
+    "nested-record-array-boundary-drift",
+    "durable-verification-receipt"
+  ],
+  "capabilityMarkers": {
+    "fresh-contract-ir": ["contract_ir", "contract-ir"],
+    "dense-declaration-inventory": ["expected_declarations", "requiredDeclarations", "expectedDeclarations"],
+    "current-input-consumer-verification": ["test-consumer-admission", "verifyContractIr", "verifyContractIrAdmission", "verify-ir"],
+    "canonical-refusal-probes": ["test-consumer-admission", "rejects", "rejection", "refusal"],
+    "durable-verification-receipt": ["consumer-verification-receipt/v1", "contract-ir-verification/v1", "verification.json"]
+  },
+  "candidateFileLimitPerRepository": 96
+}

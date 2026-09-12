@@ -1,5 +1,5 @@
-tmp
-temp
+tmp/
+temp/
 tmp/worktrees
 temp/worktrees
 /blueprints/zed-eclipse/target/

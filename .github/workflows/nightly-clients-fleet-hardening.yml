@@ -141,7 +141,7 @@ jobs:
           } >>"$GITHUB_OUTPUT"
           cat reports/discovery/summary.md >>"$GITHUB_STEP_SUMMARY"
       - name: Upload discovery report
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: clients-fleet-discovery
           path: reports/discovery
@@ -317,7 +317,7 @@ jobs:
           sha256sum toolchain/* > toolchain/SHA256SUMS
           sha256sum --check toolchain/SHA256SUMS
       - name: Upload canonical run toolchain
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: zed-clients-canonical-toolchain
           path: toolchain
@@ -387,7 +387,7 @@ jobs:
         with:
           persist-credentials: false
           show-progress: false
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           name: zed-clients-canonical-toolchain
           path: toolchain
@@ -399,7 +399,7 @@ jobs:
           python -m pip install --disable-pip-version-check tomlkit jsonschema pytest
           npm install --global typescript@5.7.3
       - name: Install Nix
-        uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
@@ -434,7 +434,7 @@ jobs:
             --command python tools/run_clients_batch.py
       - name: Upload batch reports
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: client-hardening-batch-${{ matrix.batch_id }}
           path: reports
@@ -451,7 +451,7 @@ jobs:
     if: always() && needs.gate.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         continue-on-error: true
         with:
           pattern: 'client-hardening-batch-*'

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/zed-pkg/.github/test-fixtures/tjsv-admission/authored.schema.json",
+  "x-ores-namespace": "Zed.Governance",
+  "$defs": {
+    "AdmissionFixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "count": { "type": "integer", "minimum": 0, "maximum": 65535 }
+      },
+      "required": ["id", "count"]
+    }
+  }
+}
