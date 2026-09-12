@@ -181,7 +181,7 @@ jobs:
         AUDIT.audit_workflow(
             "demo-e2e",
             ".github/workflows/ci.yml",
-            """
+            r"""
 name: ci
 on:
   pull_request:
