@@ -176,6 +176,60 @@ jobs:
         )
         self.assertEqual(findings, [])
 
+    def test_verified_imported_rust_authority_is_accepted(self):
+        findings = []
+        AUDIT.audit_workflow(
+            "demo-e2e",
+            ".github/workflows/ci.yml",
+            """
+name: ci
+on:
+  pull_request:
+jobs:
+  test:
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Install admitted sibling Rust authority
+        run: |
+          toolchain="$(sed -n 's/^channel = \"\\([^\"]*\\)\"/\\1/p' zed-cli/rust-toolchain.toml)"
+          [[ "$toolchain" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          rustup toolchain install "$toolchain" --profile minimal --no-self-update
+          rustup default "$toolchain"
+          test "$(rustc --version | awk '{print $2}')" = "$toolchain"
+      - run: cargo test --locked
+""",
+            False,
+            findings,
+        )
+        self.assertEqual(findings, [])
+
+    def test_imported_rust_authority_must_be_fully_verified(self):
+        findings = []
+        AUDIT.audit_workflow(
+            "demo-e2e",
+            ".github/workflows/ci.yml",
+            """
+name: ci
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    steps:
+      - run: |
+          toolchain="$(cat zed-cli/rust-toolchain.toml)"
+          rustup toolchain install "$toolchain"
+          cargo test
+""",
+            False,
+            findings,
+        )
+        self.assertIn(
+            "rust-workflow-missing-toolchain-authority",
+            {item.code for item in findings},
+        )
+
     def test_workflow_rejects_mutable_actions_credentials_and_moving_rust(self):
         findings = []
         AUDIT.audit_workflow(
