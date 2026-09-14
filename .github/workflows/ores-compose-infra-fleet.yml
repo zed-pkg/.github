@@ -18,7 +18,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  COMPOSE_SHA: 9b6883c395248af61fed155e772c1bfd1deb86a0
+  COMPOSE_SHA: 9992401b5fd0826792b44fd47dad5542ce9f0830
   MAX_REPOS: '120'
   MAX_PARALLEL: '6'
   RUN_BRANCH: automation/ores-compose-infra-20260914
