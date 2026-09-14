@@ -48,12 +48,11 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           test -n "${GH_TOKEN:-}"
-          gh api --silent repos/zed-pkg/zed-cli
-          can_push="$(gh api repos/zed-pkg/zed-cli --jq '.permissions.push // false')"
-          [[ "$can_push" == true ]] || {
-            echo '::error title=Fleet token is read-only::ZED_FLEET_GH_TOKEN needs push access for bounded cross-repository PRs.'
-            exit 77
-          }
+          # Do not spend REST quota merely proving that the credential exists.
+          # Git transport is verified by the exact zed-cli checkout below; write
+          # authority is verified naturally by bounded branch pushes. A token
+          # that cannot push fails closed at that repository instead of blocking
+          # the whole controller before any dependency validation can run.
           bash -n tools/zed_tip_fleet_sync.sh
           bash -n tools/zed_tip_fleet_sync_fast.sh
           bash -n tools/zed_tip_sync_repo.sh
