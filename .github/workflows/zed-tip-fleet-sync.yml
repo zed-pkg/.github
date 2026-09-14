@@ -6,6 +6,8 @@ on:
       - chatgpt/zed-tip-fleet-sync-20260914
     paths:
       - tools/zed_tip_fleet_sync.sh
+      - tools/zed_tip_fleet_sync_fast.sh
+      - tools/discover_clients_fleet.py
       - .github/workflows/zed-tip-fleet-sync.yml
 
 permissions:
@@ -14,7 +16,7 @@ permissions:
 
 concurrency:
   group: zed-dependency-tip-fleet-sync-20260914
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   sync:
@@ -25,6 +27,7 @@ jobs:
       ZED_PKG_TOKEN: ${{ secrets.ZED_PKG_TOKEN }}
       MIN_REPOS: '100'
       MAX_REPOS: '180'
+      MAX_PARALLEL: '4'
       REPORT_DIR: ${{ github.workspace }}/artifacts/zed-tip-sync
       RUN_BRANCH: chatgpt/zed-tip-sync-20260914
     steps:
@@ -42,6 +45,8 @@ jobs:
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           test -n "${GH_TOKEN:-}"
           gh api --silent repos/zed-pkg/zed-cli
+          bash -n tools/zed_tip_fleet_sync.sh
+          bash -n tools/zed_tip_fleet_sync_fast.sh
 
       - name: Check out current-tip zed-cli
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -67,16 +72,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # The one-shot controller intentionally treats an already-current repo
-          # as a successful processed node. Patch the temporary execution copy so
-          # a sentinel exit from a no-diff repository is captured instead of
-          # triggering Bash errexit. The tracked source remains available as the
-          # exact audit input for this run.
-          runner="$RUNNER_TEMP/zed_tip_fleet_sync.sh"
-          cp tools/zed_tip_fleet_sync.sh "$runner"
-          perl -0pi -e 's/\n  \)\n  rc=\$\?\n  if \[\[ \$rc -eq 10 \]\];/\n  ) || rc=\$?\n  rc=\${rc:-0}\n  if [[ \$rc -eq 10 ]];/' "$runner"
-          bash -n "$runner"
-          bash "$runner"
+          bash tools/zed_tip_fleet_sync_fast.sh
 
       - name: Publish summary
         if: always()
