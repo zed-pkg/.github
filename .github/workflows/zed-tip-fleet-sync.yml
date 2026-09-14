@@ -21,7 +21,7 @@ permissions:
 
 concurrency:
   group: zed-dependency-tip-fleet-sync-20260914
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   MIN_REPOS: '100'
