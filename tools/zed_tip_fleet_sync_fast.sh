@@ -11,7 +11,8 @@ RUN_BRANCH="${RUN_BRANCH:-automation/zed-tip-sync-20260914}"
 REPORT_DIR="${REPORT_DIR:-$PWD/artifacts/zed-tip-sync}"
 REPORT_DIR="$(mkdir -p "$REPORT_DIR" && cd "$REPORT_DIR" && pwd)"
 RESULT_DIR="$REPORT_DIR/results"
-mkdir -p "$RESULT_DIR"
+DIAG_DIR="$REPORT_DIR/diagnostics"
+mkdir -p "$RESULT_DIR" "$DIAG_DIR"
 
 FLEET_ORGS="${ZED_FLEET_ORGS:-zed-pkg,fiducia-cloud,shared-auth,messaging-intel,claritas-viz,opto-sync,quaestor-ledger,sonus-auris,voxletra,elenkos-systems,hhaus-org,hacker-house-medellin,gha-indie-worker,ores-legal,ores-rate-limit,ores-redis-lru-cache,ores-middleware,ores-chat,3FA-app,fanwaave,daedalus-fab,happy-wakey,pal-trace,bait-bikes,embedded-alerts,evento-globolo,discrete-event-systems,claimgraph,drone-mngr,led-dynamo,ores-aerial,premarital-asset-protection,canonical-cloud,ores-forms,ores-wasm-loaders,praxonne,hypesiege,honeypot-r-us,scintilla-run,flags-2-env,benefactor-cc,chapter-publishing,athlet-o,agent-pontifex,cliptown,ecma-d,anticaptrad}"
 
@@ -54,11 +55,19 @@ GITHUB_TOKEN="$GH_TOKEN" python3 tools/discover_clients_fleet.py \
 jq -r '.include[] | .repo, (.consumers[]? // empty)' \
   "$REPORT_DIR/client-discovery/matrix.json" >>"$candidate_repos"
 
-log 'discovering root .zpkg.toml package owners'
+log 'discovering root .zpkg.toml package owners per fleet owner'
 manifest_hits="$REPORT_DIR/manifest-search.txt"
 : >"$manifest_hits"
-gh api -X GET search/code -f q='filename:.zpkg.toml' -f per_page=100 \
-  --paginate --jq '.items[].repository.full_name' 2>/dev/null >"$manifest_hits" || true
+while IFS= read -r owner; do
+  [[ -n "$owner" ]] || continue
+  qualifier="org:$owner"
+  [[ "$owner" == ORESoftware ]] && qualifier="user:$owner"
+  gh api -X GET search/code \
+    -f q="filename:.zpkg.toml $qualifier" -f per_page=100 \
+    --paginate --jq '.items[].repository.full_name' 2>/dev/null \
+    >>"$manifest_hits" || true
+done <"$owners"
+sort -fu "$manifest_hits" -o "$manifest_hits"
 while IFS= read -r repo; do
   [[ "$repo" == */* ]] || continue
   if allowed_repo "$repo"; then
@@ -90,7 +99,9 @@ while IFS= read -r repo; do
   [[ -n "$meta" ]] || continue
   [[ "$(jq -r '.archived // false' <<<"$meta")" == false ]] || continue
   [[ "$(jq -r '.disabled // false' <<<"$meta")" == false ]] || continue
-  branch="$(jq -r '.default_branch // "main"' <<<"$meta")"
+  [[ "$(jq -r '.size // 0' <<<"$meta")" != 0 ]] || continue
+  branch="$(jq -r '.default_branch // empty' <<<"$meta")"
+  [[ -n "$branch" ]] || continue
   reason=graph-seed
   grep -Fqx "$repo" "$package_repos" && reason=package-owner
   printf '%s\t%s\t%s\n' "$repo" "$branch" "$reason" >>"$REPORT_DIR/candidates.tsv"
@@ -106,28 +117,39 @@ fi
 head -n "$MAX_REPOS" "$REPORT_DIR/candidates.tsv" >"$REPORT_DIR/selected.tsv"
 selected_count="$(wc -l <"$REPORT_DIR/selected.tsv" | tr -d ' ')"
 
-log 'building package coordinate -> current tip authority map'
+log 'building canonical package coordinate -> current tip authority map'
 : >"$REPORT_DIR/packages.tsv"
 while IFS= read -r repo; do
   [[ "$repo" == */* ]] || continue
   meta="$(gh api "repos/$repo" 2>/dev/null || true)"
   [[ -n "$meta" ]] || continue
-  branch="$(jq -r '.default_branch // "main"' <<<"$meta")"
+  branch="$(jq -r '.default_branch // empty' <<<"$meta")"
+  [[ -n "$branch" ]] || continue
   payload="$(gh api "repos/$repo/contents/.zpkg.toml?ref=$branch" 2>/dev/null || true)"
   [[ -n "$payload" ]] || continue
   manifest="$(jq -r '.content // empty' <<<"$payload" | tr -d '\n' | base64 --decode 2>/dev/null || true)"
   [[ -n "$manifest" ]] || continue
   identity="$(awk '
-    BEGIN { section=""; org=""; name=""; version="" }
+    BEGIN { section=""; org=""; name=""; version=""; repo_url="" }
     /^[[:space:]]*\[/ { line=$0; sub(/^[[:space:]]*\[/,"",line); sub(/\].*$/,"",line); section=line; next }
     section=="package" && /^[[:space:]]*org[[:space:]]*=/ { line=$0; sub(/^[^=]*=[[:space:]]*"/,"",line); sub(/".*$/,"",line); org=line }
     section=="package" && /^[[:space:]]*name[[:space:]]*=/ { line=$0; sub(/^[^=]*=[[:space:]]*"/,"",line); sub(/".*$/,"",line); name=line }
     section=="package" && /^[[:space:]]*version[[:space:]]*=/ { line=$0; sub(/^[^=]*=[[:space:]]*"/,"",line); sub(/".*$/,"",line); version=line }
-    END { if (org!="" && name!="" && version!="") printf "%s/%s\t%s", org, name, version }
+    section=="package.repository" && /^[[:space:]]*url[[:space:]]*=/ { line=$0; sub(/^[^=]*=[[:space:]]*"/,"",line); sub(/".*$/,"",line); repo_url=line }
+    END { if (org!="" && name!="" && version!="") printf "%s/%s\t%s\t%s", org, name, version, repo_url }
   ' <<<"$manifest")"
   [[ -n "$identity" ]] || continue
   coordinate="${identity%%$'\t'*}"
-  version="${identity#*$'\t'}"
+  rest="${identity#*$'\t'}"
+  version="${rest%%$'\t'*}"
+  repo_url="${rest#*$'\t'}"
+  if [[ -n "$repo_url" && "$repo_url" != "$rest" ]]; then
+    declared_repo="$(sed -E 's#^https://github\.com/##; s#^git@github\.com:##; s#\.git/?$##; s#/$##' <<<"$repo_url")"
+    if [[ "$declared_repo" == */* && "${declared_repo,,}" != "${repo,,}" ]]; then
+      warn "ignoring non-canonical package mirror $repo for $coordinate; manifest points at $declared_repo"
+      continue
+    fi
+  fi
   head_sha="$(gh api "repos/$repo/commits/$branch" --jq '.sha' 2>/dev/null || true)"
   [[ "$head_sha" =~ ^[0-9a-f]{40}$ ]] || continue
   tagged=false
@@ -148,12 +170,13 @@ sort -fu "$REPORT_DIR/packages.tsv" -o "$REPORT_DIR/packages.tsv"
 jq -Rn '[inputs | split("\t") | select(length==5) | {coordinate:.[0],repo:.[1],version:.[2],sha:.[3],tagged:(.[4]=="true")}]' \
   <"$REPORT_DIR/packages.tsv" >"$REPORT_DIR/packages.json"
 package_count="$(wc -l <"$REPORT_DIR/packages.tsv" | tr -d ' ')"
-log "selected $selected_count repositories; authority map contains $package_count root Zed packages"
+tagged_count="$(awk -F '\t' '$5=="true" {n++} END {print n+0}' "$REPORT_DIR/packages.tsv")"
+log "selected $selected_count repositories; authority map contains $package_count canonical root Zed packages ($tagged_count tagged at current tip)"
 
-export RUN_BRANCH RESULT_DIR ZED_BIN GH_TOKEN ZED_PKG_TOKEN
+export RUN_BRANCH RESULT_DIR DIAG_DIR ZED_BIN GH_TOKEN ZED_PKG_TOKEN
 PACKAGE_MAP="$REPORT_DIR/packages.json"
 export PACKAGE_MAP
-rm -f "$RESULT_DIR"/*.tsv 2>/dev/null || true
+rm -f "$RESULT_DIR"/*.tsv "$DIAG_DIR"/* 2>/dev/null || true
 
 log "synchronizing selected repositories with max parallelism $MAX_PARALLEL"
 worker="$REPORT_DIR/worker.sh"
@@ -184,7 +207,8 @@ cat >"$REPORT_DIR/summary.md" <<EOF_SUMMARY
 - concrete package/dependent repositories discovered: **$candidate_count**
 - repositories selected: **$selected_count**
 - repositories processed with a terminal result: **$processed**
-- root Zed packages in current-tip authority map: **$package_count**
+- canonical root Zed packages in current-tip authority map: **$package_count**
+- package versions tagged exactly at current repository tip: **$tagged_count**
 - repositories with actual dependency-update PRs: **$updated**
 - repositories already at admitted tips / no safe delta: **$no_change**
 - repository-level failures: **$failed**
