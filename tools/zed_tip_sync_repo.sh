@@ -136,25 +136,26 @@ relevant_paths() {
 }
 
 log "clone $default_branch"
-repo_size="$(gh api "repos/$repo" --jq '.size // 0' 2>/dev/null || echo 0)"
-if [[ "$repo_size" == 0 ]]; then
-  record no-change empty-repository
-  exit 0
-fi
 if ! git clone --quiet --filter=blob:none --depth=1 --branch "$default_branch" "https://github.com/$repo.git" "$work/repo"; then
-  fresh_branch="$(gh api "repos/$repo" --jq '.default_branch // empty' 2>/dev/null || true)"
-  if [[ -n "$fresh_branch" && "$fresh_branch" != "$default_branch" ]]; then
-    warn "default branch moved from $default_branch to $fresh_branch; retrying clone"
-    rm -rf "$work/repo"
-    default_branch="$fresh_branch"
-    git clone --quiet --filter=blob:none --depth=1 --branch "$default_branch" "https://github.com/$repo.git" "$work/repo" || {
-      record failure clone-failed "$default_branch"
-      exit 20
-    }
-  else
+  warn "branch-specific clone failed; retrying repository default branch through Git transport"
+  rm -rf "$work/repo"
+  if ! git clone --quiet --filter=blob:none --depth=1 "https://github.com/$repo.git" "$work/repo"; then
     record failure clone-failed "$default_branch"
     exit 20
   fi
+  default_branch="$(git -C "$work/repo" branch --show-current 2>/dev/null || true)"
+  if [[ -z "$default_branch" ]]; then
+    if git -C "$work/repo" rev-parse --verify HEAD >/dev/null 2>&1; then
+      default_branch="$(git -C "$work/repo" symbolic-ref --short -q HEAD 2>/dev/null || true)"
+    else
+      record no-change empty-repository
+      exit 0
+    fi
+  fi
+  [[ -n "$default_branch" ]] || {
+    record failure default-branch-unresolved
+    exit 20
+  }
 fi
 cd "$work/repo"
 git config user.name 'zed-pkg tip sync'
@@ -254,14 +255,27 @@ Discovery reason: \`$reason\`
 Changed files: \`$diffstat\`
 EOF_BODY
 
-pr_number="$(gh pr list --repo "$repo" --head "$RUN_BRANCH" --state open --json number --jq '.[0].number // empty')"
+pr_number="$(gh pr list --repo "$repo" --head "$RUN_BRANCH" --state open --json number --jq '.[0].number // empty' 2>/dev/null || true)"
 if [[ -n "$pr_number" ]]; then
-  gh pr edit "$pr_number" --repo "$repo" --title 'chore: sync dependency tips through zed' --body-file "$work/pr-body.md" >/dev/null
+  if ! gh pr edit "$pr_number" --repo "$repo" --title 'chore: sync dependency tips through zed' --body-file "$work/pr-body.md" >/dev/null; then
+    record pushed "$head_sha" "https://github.com/$repo/tree/$RUN_BRANCH"
+    warn 'branch pushed but PR refresh is REST-rate-limited or unauthorized'
+    exit 0
+  fi
 else
-  gh pr create --repo "$repo" --base "$default_branch" --head "$RUN_BRANCH" --title 'chore: sync dependency tips through zed' --body-file "$work/pr-body.md" >/dev/null
-  pr_number="$(gh pr list --repo "$repo" --head "$RUN_BRANCH" --state open --json number --jq '.[0].number // empty')"
+  if ! gh pr create --repo "$repo" --base "$default_branch" --head "$RUN_BRANCH" --title 'chore: sync dependency tips through zed' --body-file "$work/pr-body.md" >/dev/null; then
+    record pushed "$head_sha" "https://github.com/$repo/tree/$RUN_BRANCH"
+    warn 'branch pushed but PR creation is REST-rate-limited or unauthorized'
+    exit 0
+  fi
+  pr_number="$(gh pr list --repo "$repo" --head "$RUN_BRANCH" --state open --json number --jq '.[0].number // empty' 2>/dev/null || true)"
 fi
 pr_url=""
 [[ -n "$pr_number" ]] && pr_url="https://github.com/$repo/pull/$pr_number"
-record updated "$head_sha" "$pr_url"
-log "opened/refreshed ${pr_url:-dependency-tip PR}"
+if [[ -n "$pr_url" ]]; then
+  record updated "$head_sha" "$pr_url"
+  log "opened/refreshed $pr_url"
+else
+  record pushed "$head_sha" "https://github.com/$repo/tree/$RUN_BRANCH"
+  warn 'dependency-tip branch pushed, but PR number could not be resolved'
+fi
