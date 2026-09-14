@@ -12,6 +12,9 @@ RUN_BRANCH="${RUN_BRANCH:-automation/zed-tip-sync-20260914}"
 RESULT_DIR="${RESULT_DIR:-$PWD/artifacts/zed-tip-sync/results}"
 mkdir -p "$RESULT_DIR"
 RESULT_DIR="$(cd "$RESULT_DIR" && pwd)"
+DIAG_DIR="${DIAG_DIR:-$(dirname "$RESULT_DIR")/diagnostics}"
+mkdir -p "$DIAG_DIR"
+DIAG_DIR="$(cd "$DIAG_DIR" && pwd)"
 package_map="$(cd "$(dirname "$package_map")" && pwd)/$(basename "$package_map")"
 
 safe="${repo//\//__}"
@@ -22,6 +25,11 @@ trap 'rm -rf "$work"' EXIT
 log() { printf '[zed-tip-repo] %s: %s\n' "$repo" "$*"; }
 warn() { printf '[zed-tip-repo] WARN %s: %s\n' "$repo" "$*" >&2; }
 record() { printf '%s\t%s\t%s\t%s\n' "$1" "$repo" "${2:-}" "${3:-}" >"$result_file"; }
+preserve_diag() {
+  local label="$1" src="$2"
+  [[ -f "$src" ]] || return 0
+  cp "$src" "$DIAG_DIR/${safe}__${label}" || true
+}
 
 update_zpkg_manifest() {
   local manifest="$1"
@@ -124,10 +132,25 @@ relevant_paths() {
 }
 
 log "clone $default_branch"
-gh auth setup-git >/dev/null
+repo_size="$(gh api "repos/$repo" --jq '.size // 0' 2>/dev/null || echo 0)"
+if [[ "$repo_size" == 0 ]]; then
+  record no-change empty-repository
+  exit 0
+fi
 if ! git clone --quiet --filter=blob:none --depth=1 --branch "$default_branch" "https://github.com/$repo.git" "$work/repo"; then
-  record failure clone-failed
-  exit 20
+  fresh_branch="$(gh api "repos/$repo" --jq '.default_branch // empty' 2>/dev/null || true)"
+  if [[ -n "$fresh_branch" && "$fresh_branch" != "$default_branch" ]]; then
+    warn "default branch moved from $default_branch to $fresh_branch; retrying clone"
+    rm -rf "$work/repo"
+    default_branch="$fresh_branch"
+    git clone --quiet --filter=blob:none --depth=1 --branch "$default_branch" "https://github.com/$repo.git" "$work/repo" || {
+      record failure clone-failed "$default_branch"
+      exit 20
+    }
+  else
+    record failure clone-failed "$default_branch"
+    exit 20
+  fi
 fi
 cd "$work/repo"
 git config user.name 'zed-pkg tip sync'
@@ -144,10 +167,12 @@ if [[ -f .zpkg.toml ]]; then
   mkdir -p "$work/zed-home"
   if ! timeout 180s env ZED_HOME="$work/zed-home" "$ZED_BIN" install --install-mode copy >"$work/zed-install.log" 2>&1; then
     warn 'zed resolution failed; reverting zed manifest/lock changes'
+    preserve_diag zed-install.log "$work/zed-install.log"
     cp "$work/zpkg.before" .zpkg.toml
     if $had_lock; then cp "$work/zpkg.lock.before" .zpkg.lock; else rm -f .zpkg.lock; fi
   elif ! "$ZED_BIN" validate --require-lock --json >"$work/zed-validate.json" 2>&1; then
     warn 'zed lock validation failed; reverting zed manifest/lock changes'
+    preserve_diag zed-validate.json "$work/zed-validate.json"
     cp "$work/zpkg.before" .zpkg.toml
     if $had_lock; then cp "$work/zpkg.lock.before" .zpkg.lock; else rm -f .zpkg.lock; fi
   fi
@@ -161,6 +186,7 @@ if [[ -f Cargo.toml ]]; then
   if ! cmp -s Cargo.toml "$work/Cargo.toml.before"; then
     if ! timeout 180s cargo metadata --format-version 1 --no-deps >"$work/cargo-metadata.json" 2>"$work/cargo-metadata.err"; then
       warn 'cargo metadata failed; reverting Cargo dependency-tip changes'
+      preserve_diag cargo-metadata.err "$work/cargo-metadata.err"
       cp "$work/Cargo.toml.before" Cargo.toml
       if $had_cargo_lock; then cp "$work/Cargo.lock.before" Cargo.lock; else rm -f Cargo.lock; fi
     fi
@@ -175,6 +201,7 @@ if [[ -f package.json ]]; then
   if ! cmp -s package.json "$work/package.json.before" && $had_npm_lock; then
     if ! timeout 180s npm install --package-lock-only --ignore-scripts --no-audit --no-fund >"$work/npm-lock.log" 2>&1; then
       warn 'npm lock refresh failed; reverting package.json Git-tip changes'
+      preserve_diag npm-lock.log "$work/npm-lock.log"
       cp "$work/package.json.before" package.json
       cp "$work/package-lock.json.before" package-lock.json
     fi
