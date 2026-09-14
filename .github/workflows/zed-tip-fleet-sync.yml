@@ -1,0 +1,101 @@
+name: Zed dependency tip fleet sync
+
+on:
+  push:
+    branches:
+      - chatgpt/zed-tip-fleet-sync-20260914
+    paths:
+      - tools/zed_tip_fleet_sync.sh
+      - .github/workflows/zed-tip-fleet-sync.yml
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: zed-dependency-tip-fleet-sync-20260914
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    env:
+      GH_TOKEN: ${{ secrets.ZED_FLEET_GH_TOKEN }}
+      ZED_PKG_TOKEN: ${{ secrets.ZED_PKG_TOKEN }}
+      MIN_REPOS: '100'
+      MAX_REPOS: '180'
+      REPORT_DIR: ${{ github.workspace }}/artifacts/zed-tip-sync
+      RUN_BRANCH: chatgpt/zed-tip-sync-20260914
+    steps:
+      - name: Check out exact controller candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify controller source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -n "${GH_TOKEN:-}"
+          gh api --silent repos/zed-pkg/zed-cli
+
+      - name: Check out current-tip zed-cli
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: zed-pkg/zed-cli
+          ref: main
+          path: current-zed-cli
+          token: ${{ secrets.ZED_FLEET_GH_TOKEN }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Build current-tip Zed CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.95.0 --profile minimal --no-self-update
+          cargo +1.95.0 build --locked --release --manifest-path current-zed-cli/Cargo.toml
+          ./current-zed-cli/target/release/zed --version
+          echo "ZED_BIN=$GITHUB_WORKSPACE/current-zed-cli/target/release/zed" >> "$GITHUB_ENV"
+          echo "ZED_CLI_SHA=$(git -C current-zed-cli rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Execute dependency/dependent tip synchronization
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The one-shot controller intentionally treats an already-current repo
+          # as a successful processed node. Patch the temporary execution copy so
+          # a sentinel exit from a no-diff repository is captured instead of
+          # triggering Bash errexit. The tracked source remains available as the
+          # exact audit input for this run.
+          runner="$RUNNER_TEMP/zed_tip_fleet_sync.sh"
+          cp tools/zed_tip_fleet_sync.sh "$runner"
+          perl -0pi -e 's/\n  \)\n  rc=\$\?\n  if \[\[ \$rc -eq 10 \]\];/\n  ) || rc=\$?\n  rc=\${rc:-0}\n  if [[ \$rc -eq 10 ]];/' "$runner"
+          bash -n "$runner"
+          bash "$runner"
+
+      - name: Publish summary
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f artifacts/zed-tip-sync/summary.md ]]; then
+            cat artifacts/zed-tip-sync/summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+          {
+            echo
+            echo "- controller SHA: \`$GITHUB_SHA\`"
+            echo "- current-tip zed-cli SHA: \`${ZED_CLI_SHA:-unavailable}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload fleet evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: zed-tip-fleet-sync-${{ github.run_id }}
+          path: artifacts/zed-tip-sync
+          if-no-files-found: warn
+          retention-days: 30
