@@ -7,7 +7,10 @@ on:
     paths:
       - tools/zed_tip_fleet_sync.sh
       - tools/zed_tip_fleet_sync_fast.sh
+      - tools/zed_tip_fleet_sync_quota_light.sh
       - tools/zed_tip_sync_repo.sh
+      - tools/zed-tip-selected-20260914.txt
+      - tools/zed-tip-package-repos-20260914.txt
       - tools/discover_clients_fleet.py
       - .github/workflows/zed-tip-fleet-sync.yml
   workflow_dispatch:
@@ -48,13 +51,11 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           test -n "${GH_TOKEN:-}"
-          # Do not spend REST quota merely proving that the credential exists.
-          # Git transport is verified by the exact zed-cli checkout below; write
-          # authority is verified naturally by bounded branch pushes. A token
-          # that cannot push fails closed at that repository instead of blocking
-          # the whole controller before any dependency validation can run.
+          test "$(wc -l < tools/zed-tip-selected-20260914.txt | tr -d ' ')" -ge 100
+          test "$(wc -l < tools/zed-tip-package-repos-20260914.txt | tr -d ' ')" -gt 0
           bash -n tools/zed_tip_fleet_sync.sh
           bash -n tools/zed_tip_fleet_sync_fast.sh
+          bash -n tools/zed_tip_fleet_sync_quota_light.sh
           bash -n tools/zed_tip_sync_repo.sh
 
       - name: Check out current-tip zed-cli
@@ -88,11 +89,11 @@ jobs:
             echo "- Rust toolchain: \`$toolchain\`"
           } >>"$GITHUB_STEP_SUMMARY"
 
-      - name: Execute 100+ repository dependency/dependent tip synchronization
+      - name: Execute seeded 100+ repository dependency/dependent tip synchronization
         shell: bash
         run: |
           set -euo pipefail
-          bash tools/zed_tip_fleet_sync_fast.sh
+          bash tools/zed_tip_fleet_sync_quota_light.sh
 
       - name: Publish fleet summary
         if: always()
