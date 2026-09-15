@@ -5,10 +5,41 @@ on:
   push:
     branches: [main, dev, master]
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
 
+concurrency:
+  group: scratch-ignore-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate:
-    uses: ORESoftware/.github/.github/workflows/scratch-ignore-policy.yml@8fa11e2fb5365b5545c438dd719399cb18903be2
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out exact caller revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Install pinned minimal Rust toolchain
+        run: rustup toolchain install 1.85.1 --profile minimal --no-self-update
+      - name: Compile and test the local checker
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tmp/scratch-ignore-policy
+          rustup run 1.85.1 rustc --edition=2021 -D warnings --test scratch_ignore_check.rs -o tmp/scratch-ignore-policy/tests
+          tmp/scratch-ignore-policy/tests
+          rustup run 1.85.1 rustc --edition=2021 -D warnings scratch_ignore_check.rs -o tmp/scratch-ignore-policy/check
+      - name: Verify argument refusal and repository ignore rules
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          tmp/scratch-ignore-policy/check --unsupported >tmp/scratch-ignore-policy/argv.log 2>&1
+          status=$?
+          set -e
+          test "$status" -eq 2
+          tmp/scratch-ignore-policy/check
