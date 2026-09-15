@@ -57,6 +57,7 @@ jobs:
     env:
       CARGO_TERM_COLOR: always
       CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+      CLI_CROSS_REPO_TOKEN: ${{ secrets['cross-repo-token'] }}
     steps:
       - name: Validate inputs
         shell: bash
@@ -90,17 +91,15 @@ jobs:
           set -euo pipefail
           actual="$(git rev-parse HEAD)"
           test -n "$EXPECTED_SHA"
-          test "${actual,,}" = "${EXPECTED_SHA,,}"
+          test "$actual" = "$EXPECTED_SHA"
           printf 'validated exact caller revision %s\n' "$actual"
 
       - name: Configure optional private Git read access
-        if: ${{ secrets['cross-repo-token'] != '' }}
+        if: env.CLI_CROSS_REPO_TOKEN != ''
         shell: bash
-        env:
-          CROSS_REPO_TOKEN: ${{ secrets['cross-repo-token'] }}
         run: |
           set -euo pipefail
-          git config --global "url.https://x-access-token:${CROSS_REPO_TOKEN}@github.com/.insteadOf" "https://github.com/"
+          git config --global "url.https://x-access-token:${CLI_CROSS_REPO_TOKEN}@github.com/.insteadOf" "https://github.com/"
 
       - name: Install Rust toolchain
         if: inputs.language == 'rust'
@@ -161,14 +160,17 @@ jobs:
         working-directory: ${{ inputs['working-directory'] }}
         run: |
           set -euo pipefail
-          mapfile -t bins < <(cargo metadata --no-deps --format-version 1 | jq -r '.packages[].targets[] | select(.kind | index("bin")) | .name' | sort -u)
-          test "${#bins[@]}" -gt 0
-          for bin in "${bins[@]}"; do
+          bins="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[].targets[] | select(.kind | index("bin")) | .name' | sort -u)"
+          test -n "$bins"
+          while IFS= read -r bin; do
+            test -n "$bin" || continue
             exe="target/release/$bin"
             [[ "$RUNNER_OS" == Windows ]] && exe="${exe}.exe"
             test -f "$exe"
             NO_COLOR=1 "$exe" --help >/dev/null
-          done
+          done <<EOF
+          $bins
+          EOF
 
       - name: Install Node.js
         if: inputs.language == 'node'
@@ -225,9 +227,7 @@ jobs:
           test -z "$(git status --porcelain=v1 --untracked-files=no)"
 
       - name: Remove optional Git credential rewrite
-        if: ${{ always() && secrets['cross-repo-token'] != '' }}
+        if: ${{ always() && env.CLI_CROSS_REPO_TOKEN != '' }}
         shell: bash
-        env:
-          CROSS_REPO_TOKEN: ${{ secrets['cross-repo-token'] }}
         run: |
-          git config --global --unset-all "url.https://x-access-token:${CROSS_REPO_TOKEN}@github.com/.insteadOf" || true
+          git config --global --unset-all "url.https://x-access-token:${CLI_CROSS_REPO_TOKEN}@github.com/.insteadOf" || true
