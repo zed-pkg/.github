@@ -1,0 +1,61 @@
+name: generate ores-compose candidate lockfile
+
+on:
+  push:
+    branches:
+      - chatgpt/ores-compose-infra-fleet-20260914
+    paths:
+      - .github/workflows/ores-compose-lock-candidate.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ores-compose-lock-candidate-20260914
+  cancel-in-progress: false
+
+jobs:
+  lock:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ secrets.ZED_FLEET_GH_TOKEN }}
+      EXPECTED_SHA: 9992401b5fd0826792b44fd47dad5542ce9f0830
+      TARGET_REPO: ORESoftware/ores-compose
+      TARGET_BRANCH: DEN-1862-infra-owned-compose-cold-start
+    steps:
+      - name: Check out controller exactly
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Generate and publish exact Cargo.lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${GH_TOKEN:-}"
+          gh auth setup-git
+          root="$RUNNER_TEMP/ores-compose"
+          gh repo clone "$TARGET_REPO" "$root" -- --filter=blob:none
+          git -C "$root" checkout "$TARGET_BRANCH"
+          actual="$(git -C "$root" rev-parse HEAD)"
+          test "$actual" = "$EXPECTED_SHA"
+          test ! -e "$root/Cargo.lock"
+          cargo +stable generate-lockfile --manifest-path "$root/Cargo.toml"
+          test -s "$root/Cargo.lock"
+          cargo +stable metadata --manifest-path "$root/Cargo.toml" --locked --format-version 1 --no-deps >/dev/null
+          git -C "$root" diff --check
+          git -C "$root" -c user.name='ORESoftware' -c user.email='alexander.d.mills@gmail.com' add Cargo.lock
+          git -C "$root" -c user.name='ORESoftware' -c user.email='alexander.d.mills@gmail.com' \
+            commit -m 'build: commit deterministic Cargo.lock'
+          git -C "$root" push origin "$TARGET_BRANCH"
+          {
+            echo '## ores-compose lockfile publication'
+            echo
+            echo "- prior exact SHA: \`$EXPECTED_SHA\`"
+            echo "- new exact SHA: \`$(git -C "$root" rev-parse HEAD)\`"
+            echo "- Cargo.lock SHA-256: \`$(sha256sum "$root/Cargo.lock" | awk '{print $1}')\`"
+          } >> "$GITHUB_STEP_SUMMARY"
