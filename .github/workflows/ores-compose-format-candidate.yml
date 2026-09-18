@@ -1,0 +1,63 @@
+name: normalize ores-compose candidate formatting
+
+on:
+  push:
+    branches:
+      - chatgpt/ores-compose-infra-fleet-20260914
+    paths:
+      - .github/workflows/ores-compose-format-candidate.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ores-compose-format-candidate-20260914
+  cancel-in-progress: false
+
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ secrets.ZED_FLEET_GH_TOKEN }}
+      EXPECTED_SHA: 9b6883c395248af61fed155e772c1bfd1deb86a0
+      TARGET_REPO: ORESoftware/ores-compose
+      TARGET_BRANCH: DEN-1862-infra-owned-compose-cold-start
+    steps:
+      - name: Check out controller exactly
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Format exact candidate and publish deterministic delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${GH_TOKEN:-}"
+          gh auth setup-git
+          root="$RUNNER_TEMP/ores-compose"
+          gh repo clone "$TARGET_REPO" "$root" -- --filter=blob:none
+          git -C "$root" checkout "$TARGET_BRANCH"
+          actual="$(git -C "$root" rev-parse HEAD)"
+          test "$actual" = "$EXPECTED_SHA"
+          cargo +stable fmt --manifest-path "$root/Cargo.toml" --all
+          cargo +stable fmt --manifest-path "$root/Cargo.toml" --all --check
+          if git -C "$root" diff --quiet; then
+            echo "Candidate already formatted"
+            exit 0
+          fi
+          git -C "$root" diff --check
+          git -C "$root" -c user.name='ORESoftware' -c user.email='alexander.d.mills@gmail.com' add -u
+          git -C "$root" -c user.name='ORESoftware' -c user.email='alexander.d.mills@gmail.com' \
+            commit -m 'chore: rustfmt cold-start stack'
+          git -C "$root" push origin "$TARGET_BRANCH"
+          {
+            echo '## ores-compose formatting publication'
+            echo
+            echo "- prior exact SHA: \`$EXPECTED_SHA\`"
+            echo "- new exact SHA: \`$(git -C "$root" rev-parse HEAD)\`"
+            echo "- changed files: \`$(git -C "$root" show --format= --name-only HEAD | sed '/^$/d' | wc -l | tr -d ' ')\`"
+          } >> "$GITHUB_STEP_SUMMARY"

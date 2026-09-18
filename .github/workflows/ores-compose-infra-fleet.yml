@@ -1,0 +1,66 @@
+name: ores-compose infra fleet rollout
+
+on:
+  push:
+    branches:
+      - chatgpt/ores-compose-infra-fleet-20260914
+    paths:
+      - tools/ores_compose_infra_fleet.sh
+      - .github/workflows/ores-compose-infra-fleet.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: ores-compose-infra-fleet-20260914
+  cancel-in-progress: false
+
+env:
+  COMPOSE_SHA: 9992401b5fd0826792b44fd47dad5542ce9f0830
+  MAX_REPOS: '120'
+  MAX_PARALLEL: '6'
+  RUN_BRANCH: automation/ores-compose-infra-20260914
+
+jobs:
+  rollout:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    env:
+      GH_TOKEN: ${{ secrets.ZED_FLEET_GH_TOKEN }}
+    steps:
+      - name: Check out exact fleet controller
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact controller and prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -n "${GH_TOKEN:-}"
+          bash -n tools/ores_compose_infra_fleet.sh
+          gh --version
+          jq --version
+          git --version
+          rustc +stable --version
+          cargo +stable --version
+
+      - name: Audit fleet, validate manifests, open PRs and merge exact-head green PRs
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tools/ores_compose_infra_fleet.sh
+
+      - name: Upload fleet evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ores-compose-infra-fleet-${{ github.run_id }}
+          path: ores-compose-infra-fleet-summary.tsv
+          if-no-files-found: warn
+          retention-days: 30
