@@ -1,0 +1,239 @@
+name: reusable CLI portability
+
+on:
+  workflow_call:
+    inputs:
+      language:
+        description: "CLI implementation language: rust or node"
+        required: true
+        type: string
+      working-directory:
+        description: Repository-relative directory containing the CLI manifest
+        required: false
+        default: .
+        type: string
+      rust-toolchain:
+        description: Rust toolchain selected by rustup
+        required: false
+        default: stable
+        type: string
+      node-version:
+        description: Node.js major or exact version
+        required: false
+        default: "22"
+        type: string
+      node-package-manager:
+        description: npm, pnpm, or yarn
+        required: false
+        default: npm
+        type: string
+      cargo-locked:
+        description: Require Cargo.lock for Rust checks
+        required: false
+        default: true
+        type: boolean
+      run-smoke:
+        description: Execute built CLI entry points with --help
+        required: false
+        default: true
+        type: boolean
+    secrets:
+      cross-repo-token:
+        description: Optional read-only token for private Git dependencies
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  portability:
+    name: ${{ inputs.language }} CLI on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2025]
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+    steps:
+      - name: Validate inputs
+        shell: bash
+        env:
+          CLI_LANGUAGE: ${{ inputs.language }}
+          CLI_WORKING_DIRECTORY: ${{ inputs['working-directory'] }}
+          CLI_PACKAGE_MANAGER: ${{ inputs['node-package-manager'] }}
+        run: |
+          set -euo pipefail
+          case "$CLI_LANGUAGE" in rust|node) ;; *) echo "unsupported language: $CLI_LANGUAGE" >&2; exit 2 ;; esac
+          test -n "$CLI_WORKING_DIRECTORY"
+          case "/$CLI_WORKING_DIRECTORY/" in */../*|/*/../*|/*/..|/../*) echo "working-directory must remain repository-relative" >&2; exit 2 ;; esac
+          if [[ "$CLI_LANGUAGE" == node ]]; then
+            case "$CLI_PACKAGE_MANAGER" in npm|pnpm|yarn) ;; *) echo "unsupported node package manager" >&2; exit 2 ;; esac
+          fi
+
+      - name: Check out exact caller revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          show-progress: false
+
+      - name: Verify exact caller revision
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          test -n "$EXPECTED_SHA"
+          test "$actual" = "$EXPECTED_SHA"
+          printf 'validated exact caller revision %s\n' "$actual"
+
+      - name: Configure optional private Git read access
+        shell: bash
+        env:
+          CLI_CROSS_REPO_TOKEN: ${{ secrets['cross-repo-token'] }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$CLI_CROSS_REPO_TOKEN" ]]; then
+            git config --global "url.https://x-access-token:${CLI_CROSS_REPO_TOKEN}@github.com/.insteadOf" "https://github.com/"
+          fi
+
+      - name: Install Rust toolchain
+        if: inputs.language == 'rust'
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+        with:
+          toolchain: ${{ inputs['rust-toolchain'] }}
+          components: rustfmt, clippy
+
+      - name: Require Rust manifest and lock
+        if: inputs.language == 'rust'
+        shell: bash
+        working-directory: ${{ inputs['working-directory'] }}
+        env:
+          CARGO_LOCKED: ${{ inputs['cargo-locked'] }}
+        run: |
+          set -euo pipefail
+          test -f Cargo.toml
+          if [[ "$CARGO_LOCKED" == true ]]; then test -f Cargo.lock; fi
+
+      - name: Check Rust formatting
+        if: inputs.language == 'rust'
+        working-directory: ${{ inputs['working-directory'] }}
+        run: cargo fmt --all -- --check
+
+      - name: Lint locked Rust targets
+        if: inputs.language == 'rust' && inputs['cargo-locked']
+        working-directory: ${{ inputs['working-directory'] }}
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Lint Rust targets
+        if: inputs.language == 'rust' && !inputs['cargo-locked']
+        working-directory: ${{ inputs['working-directory'] }}
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Test locked Rust targets
+        if: inputs.language == 'rust' && inputs['cargo-locked']
+        working-directory: ${{ inputs['working-directory'] }}
+        run: cargo test --locked --all-targets -- --nocapture
+
+      - name: Test Rust targets
+        if: inputs.language == 'rust' && !inputs['cargo-locked']
+        working-directory: ${{ inputs['working-directory'] }}
+        run: cargo test --all-targets -- --nocapture
+
+      - name: Build locked Rust binaries
+        if: inputs.language == 'rust' && inputs['cargo-locked']
+        working-directory: ${{ inputs['working-directory'] }}
+        run: cargo build --locked --release --bins
+
+      - name: Build Rust binaries
+        if: inputs.language == 'rust' && !inputs['cargo-locked']
+        working-directory: ${{ inputs['working-directory'] }}
+        run: cargo build --release --bins
+
+      - name: Smoke Rust CLI binaries
+        if: inputs.language == 'rust' && inputs['run-smoke']
+        shell: bash
+        working-directory: ${{ inputs['working-directory'] }}
+        run: |
+          set -euo pipefail
+          bins="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[].targets[] | select(.kind | index("bin")) | .name' | sort -u)"
+          test -n "$bins"
+          while IFS= read -r bin; do
+            test -n "$bin" || continue
+            exe="target/release/$bin"
+            [[ "$RUNNER_OS" == Windows ]] && exe="${exe}.exe"
+            test -f "$exe"
+            NO_COLOR=1 "$exe" --help >/dev/null
+          done <<EOF
+          $bins
+          EOF
+
+      - name: Install Node.js
+        if: inputs.language == 'node'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: ${{ inputs['node-version'] }}
+
+      - name: Install and test Node CLI
+        if: inputs.language == 'node'
+        shell: bash
+        working-directory: ${{ inputs['working-directory'] }}
+        env:
+          PM: ${{ inputs['node-package-manager'] }}
+        run: |
+          set -euo pipefail
+          test -f package.json
+          case "$PM" in
+            npm) npm ci ;;
+            pnpm) corepack enable && pnpm install --frozen-lockfile ;;
+            yarn) corepack enable && yarn install --immutable ;;
+          esac
+          for script in format:check lint typecheck test build; do
+            if node -e 'const p=require("./package.json"); process.exit(p.scripts?.[process.argv[1]] ? 0 : 1)' "$script"; then
+              "$PM" run "$script"
+            fi
+          done
+          node -e 'const p=require("./package.json"); if (!p.scripts?.test && !p.scripts?.build) process.exit(1)'
+
+      - name: Smoke Node CLI entry points
+        if: inputs.language == 'node' && inputs['run-smoke']
+        shell: bash
+        working-directory: ${{ inputs['working-directory'] }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const cp = require('child_process');
+          const fs = require('fs');
+          const path = require('path');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          const entries = typeof pkg.bin === 'string' ? [pkg.bin] : Object.values(pkg.bin || {});
+          if (!entries.length) throw new Error('package.json#bin is required');
+          for (const entry of [...new Set(entries)].sort()) {
+            const file = path.resolve(entry);
+            if (!fs.existsSync(file)) throw new Error(`missing CLI entry ${entry}`);
+            cp.execFileSync(process.execPath, [file, '--help'], { stdio: 'inherit', env: { ...process.env, NO_COLOR: '1' } });
+          }
+          NODE
+
+      - name: Prove validation did not mutate tracked source
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(git status --porcelain=v1 --untracked-files=no)"
+
+      - name: Remove optional Git credential rewrite
+        if: always()
+        shell: bash
+        env:
+          CLI_CROSS_REPO_TOKEN: ${{ secrets['cross-repo-token'] }}
+        run: |
+          if [[ -n "$CLI_CROSS_REPO_TOKEN" ]]; then
+            git config --global --unset-all "url.https://x-access-token:${CLI_CROSS_REPO_TOKEN}@github.com/.insteadOf" || true
+          fi
