@@ -2,8 +2,9 @@
 # ores-lint :: advisory Rust local-concurrency audit
 #
 # This scanner intentionally reports suspicious fan-out sites; it does not claim
-# a lexical match proves a policy violation. Reviewed bounded sites may carry the
-# same-line marker: `ores-concurrency: allow <reason>`.
+# a lexical match proves a policy violation. Reviewed bounded sites may carry an
+# `ores-concurrency: allow <reason>` marker on the same or immediately preceding
+# source line.
 
 set -u
 DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
@@ -26,14 +27,24 @@ find "$ROOT" -maxdepth "${ORES_LINT_DEPTH}" \
 | while IFS= read -r file; do
     rel=${file#"$ROOT"/}
     awk -v rel="$rel" '
-      function emit(rule, n, text) {
-        if (text ~ /ores-concurrency:[[:space:]]*allow/) return
+      function emit(rule, n, text,    allowed) {
+        allowed = previous_allow || current_allow
+        if (allowed) return
         printf "%s\t%s:%d\t%s\n", rule, rel, n, text
       }
       {
         line = $0
+        current_allow = (line ~ /ores-concurrency:[[:space:]]*allow/)
+
         if (line ~ /(^|[^[:alnum:]_])(std::)?thread::spawn[[:space:]]*\(/) {
           emit("direct-thread-spawn", NR, line)
+        }
+        if (line ~ /(^|[^[:alnum:]_])[[:alnum:]_]*scope\.spawn[[:space:]]*\(/) {
+          emit("scoped-thread-spawn", NR, line)
+        }
+        if (line ~ /(^|[^[:alnum:]_:])tokio(::task)?::spawn[[:space:]]*\(/ ||
+            line ~ /(^|[^[:alnum:]_:])tokio::task::spawn_blocking[[:space:]]*\(/) {
+          emit("tokio-task-spawn", NR, line)
         }
         if (line ~ /(std::sync::)?mpsc::channel[[:space:]]*\(/) {
           emit("unbounded-std-channel", NR, line)
@@ -57,6 +68,8 @@ find "$ROOT" -maxdepth "${ORES_LINT_DEPTH}" \
         if (line ~ /(std::)?thread::Builder::new[[:space:]]*\(/) {
           builder_window = 8
         }
+
+        previous_allow = current_allow
       }
     ' "$file"
   done > "$TMP"
@@ -68,7 +81,7 @@ if [ "$COUNT" -eq 0 ]; then
 fi
 
 echo "ores-lint[concurrency-rust]: $COUNT suspicious site(s); advisory review required"
-for rule in direct-thread-spawn thread-builder-spawn unbounded-std-channel unbounded-tokio-channel unbounded-crossbeam-channel; do
+for rule in direct-thread-spawn scoped-thread-spawn thread-builder-spawn tokio-task-spawn unbounded-std-channel unbounded-tokio-channel unbounded-crossbeam-channel; do
   RULE_COUNT=$(awk -F '\t' -v rule="$rule" '$1 == rule { count++ } END { print count + 0 }' "$TMP")
   [ "$RULE_COUNT" -eq 0 ] && continue
   echo "  $rule: $RULE_COUNT"
@@ -81,7 +94,7 @@ for rule in direct-thread-spawn thread-builder-spawn unbounded-std-channel unbou
 done
 
 echo "  note: lexical matches are review signals, not proof of unbounded behavior"
-echo "  allow: add same-line comment `ores-concurrency: allow <bounded reason>` after review"
+echo "  allow: add `ores-concurrency: allow <bounded reason>` on the finding line or the line immediately before it"
 
 if [ "${ORES_LINT_CONCURRENCY_STRICT}" = "1" ]; then
   echo "ores-lint[concurrency-rust]: FAILING because ORES_LINT_CONCURRENCY_STRICT=1"
