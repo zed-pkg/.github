@@ -7,7 +7,9 @@
 The scanner walks Rust source files and reports review locations for:
 
 - direct `thread::spawn` / `std::thread::spawn` calls;
+- scoped-thread fan-out such as `scope.spawn(...)`;
 - `thread::Builder` worker creation;
+- direct Tokio `spawn` / `task::spawn` / `spawn_blocking` fan-out;
 - unbounded standard-library `mpsc::channel()` calls;
 - Tokio `mpsc::unbounded_channel()` calls; and
 - crossbeam unbounded channel construction.
@@ -28,10 +30,17 @@ Strict mode exits non-zero when suspicious sites remain. It should be enabled on
 
 ## Reviewed exceptions
 
-A suspicious site that is structurally bounded may carry a same-line marker:
+A suspicious site that is structurally bounded may carry an allow marker on the same line:
 
 ```rust
 thread::spawn(move || signal_loop()); // ores-concurrency: allow one signal thread per process
+```
+
+For formatted builder chains, the marker may instead be on the immediately preceding line:
+
+```rust
+// ores-concurrency: allow fixed pool, worker count validated before this loop
+.spawn(move || worker_loop(shared))
 ```
 
 Every exception should explain the structural bound, not merely say “safe” or “intentional”. For a dedicated thread, document:
@@ -54,3 +63,5 @@ The scanner excludes `.git`, `.ores-lint`, build/target/vendor directories, and 
 ## Deliberate limits
 
 This is not a Rust parser and does not attempt to infer queue capacities, semaphore sizes, runtime worker counts, or control-flow guarantees. A clean scan is therefore not proof of policy compliance, and a finding is not proof of a defect. The policy still requires code review and tests that measure actual worker, queue, and process ceilings.
+
+The scanner also does not attempt to label every `Command::spawn` as a concurrency violation. Process execution often has legitimate serial uses, and whether a child spawn bypasses an established permit layer requires repository context. Repositories with process-heavy execution paths should add a narrower local check around the owning subprocess abstraction.
