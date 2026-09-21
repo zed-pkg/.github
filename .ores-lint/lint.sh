@@ -35,6 +35,12 @@ if find "$ROOT" -maxdepth "$ORES_LINT_DEPTH" \
      \( -name node_modules -o -name target -o -name .git -o -name vendor -o -name .vendor \) -prune -o \
      -type f -name Cargo.toml -print 2>/dev/null | head -1 | grep -q .; then
   sh "$DIR/rust.sh" "$ROOT" | tee -a "$LOG"
+  if [ -f "$DIR/concurrency-rust.sh" ]; then
+    # The shared entry point is advisory. Repositories that have explicitly
+    # adopted BOUNDED_CONCURRENCY.md may invoke concurrency-rust.sh directly
+    # with ORES_LINT_CONCURRENCY_STRICT=1.
+    ORES_LINT_CONCURRENCY_STRICT=0 sh "$DIR/concurrency-rust.sh" "$ROOT" | tee -a "$LOG"
+  fi
   FOUND=1
 fi
 
