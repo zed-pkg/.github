@@ -58,7 +58,7 @@ jobs:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
       - name: Run canonical peer-authority parity and fresh Contract IR
-        uses: ORESoftware/typespec-json-schema-validator@4a5d049218adc2740d4cf78f612caf7f38f6f64c
+        uses: ORESoftware/typespec-json-schema-validator@69337efc11ba4ecaa90b48878c942384fc74f650
         with:
           typespec: ${{ inputs.typespec }}
           schema: ${{ inputs.schema }}
