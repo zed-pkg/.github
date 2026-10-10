@@ -1,0 +1,119 @@
+name: Zed dependency tip fleet sync
+
+on:
+  push:
+    branches:
+      - chatgpt/zed-tip-fleet-sync-20260914
+    paths:
+      - tools/zed_tip_fleet_sync.sh
+      - tools/zed_tip_fleet_sync_fast.sh
+      - tools/zed_tip_fleet_sync_quota_light.sh
+      - tools/zed_tip_sync_repo.sh
+      - tools/zed-tip-selected-20260914.txt
+      - tools/zed-tip-package-repos-20260914.txt
+      - tools/discover_clients_fleet.py
+      - .github/workflows/zed-tip-fleet-sync.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: zed-dependency-tip-fleet-sync-20260914
+  cancel-in-progress: true
+
+env:
+  MIN_REPOS: '100'
+  MAX_REPOS: '220'
+  MAX_PARALLEL: '10'
+  REPORT_DIR: ${{ github.workspace }}/artifacts/zed-tip-sync
+  RUN_BRANCH: automation/zed-tip-sync-20260914
+
+jobs:
+  sync:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    env:
+      GH_TOKEN: ${{ secrets.ZED_FLEET_GH_TOKEN }}
+      ZED_PKG_TOKEN: ${{ secrets.ZED_PKG_TOKEN }}
+    steps:
+      - name: Check out exact controller candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact controller source and scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -n "${GH_TOKEN:-}"
+          test "$(wc -l < tools/zed-tip-selected-20260914.txt | tr -d ' ')" -ge 100
+          test "$(wc -l < tools/zed-tip-package-repos-20260914.txt | tr -d ' ')" -gt 0
+          bash -n tools/zed_tip_fleet_sync.sh
+          bash -n tools/zed_tip_fleet_sync_fast.sh
+          bash -n tools/zed_tip_fleet_sync_quota_light.sh
+          bash -n tools/zed_tip_sync_repo.sh
+
+      - name: Check out current-tip zed-cli
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: zed-pkg/zed-cli
+          ref: main
+          path: current-zed-cli
+          token: ${{ secrets.ZED_FLEET_GH_TOKEN }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Build exact current-tip Zed CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          tip="$(git -C current-zed-cli rev-parse HEAD)"
+          toolchain="$(sed -n 's/^channel = "\([0-9][0-9.]*\)"/\1/p' current-zed-cli/rust-toolchain.toml | head -n1)"
+          test -n "$toolchain"
+          [[ "$toolchain" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          rustup toolchain install "$toolchain" --profile minimal --no-self-update
+          cargo "+$toolchain" build --locked --release --manifest-path current-zed-cli/Cargo.toml
+          current-zed-cli/target/release/zed --version
+          echo "ZED_BIN=$GITHUB_WORKSPACE/current-zed-cli/target/release/zed" >>"$GITHUB_ENV"
+          echo "ZED_CLI_SHA=$tip" >>"$GITHUB_ENV"
+          echo "ZED_RUST_TOOLCHAIN=$toolchain" >>"$GITHUB_ENV"
+          {
+            echo '## Current-tip Zed toolchain'
+            echo
+            echo "- zed-cli SHA: \`$tip\`"
+            echo "- Rust toolchain: \`$toolchain\`"
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Execute seeded 100+ repository dependency/dependent tip synchronization
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tools/zed_tip_fleet_sync_quota_light.sh
+
+      - name: Publish fleet summary
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f artifacts/zed-tip-sync/summary.md ]]; then
+            cat artifacts/zed-tip-sync/summary.md >>"$GITHUB_STEP_SUMMARY"
+          fi
+          {
+            echo
+            echo "- controller SHA: \`$GITHUB_SHA\`"
+            echo "- current-tip zed-cli SHA: \`${ZED_CLI_SHA:-unavailable}\`"
+            echo "- zed-cli Rust toolchain: \`${ZED_RUST_TOOLCHAIN:-unavailable}\`"
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Upload fleet evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: zed-tip-fleet-sync-${{ github.run_id }}
+          path: artifacts/zed-tip-sync
+          if-no-files-found: warn
+          retention-days: 30
