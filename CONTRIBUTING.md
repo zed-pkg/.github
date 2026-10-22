@@ -58,3 +58,16 @@ Use a focused feature branch and a draft pull request. Link the relevant issue o
 
 External GitHub Actions must be pinned to full commit SHAs. Workflows must use explicit least-privilege permissions, explicit timeouts, and non-persisted checkout credentials.
 <!-- ore-org-baseline:end -->
+
+## Rust-first scripts and automation
+
+**No new Python scripts: write first-party build, CI, test, migration, codegen, release, deployment and maintenance tooling in Rust.** Prefer maintained Rust CLIs or `cargo xtask`. Shell/YAML may serve as thin wrappers; avoid creating complex shell replacements just to evade this standard.
+
+**Existing Python scripts require tested, behavior-preserving migration**, not immediate deletion. Inventory entry points and dependencies, preserve flags, exit statuses, data formats, error handling, security controls, and supported platforms, then update all callers only after relevant positive/negative unit and end-to-end smoke tests pass. A policy PR is not a Rust migration PR.
+
+**Python application/product code is a documented special-case exception**, with an accountable owner, justification and clearly limited scope. Application-specific tests may be within that exception. A repository automation script cannot be relabeled application code to bypass the rule.
+
+Document reproducible Rust build/run steps. When applicable run `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test`, and executable smoke/negative tests against the exact PR head. Do not represent runner availability or parse-only checks as evidence of actual source execution.
+
+GitHub's canonical organization `.github` guidance is not automatically inherited for arbitrary agent instructions or workflow enforcement. Explicitly synchronize local `AGENTS.md` and configure checks per repository as needed.
+
