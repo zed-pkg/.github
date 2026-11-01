@@ -103,7 +103,7 @@ jobs:
       GITHUB_TOKEN: ${{ secrets.ZED_FLEET_GH_TOKEN }}
       ORG_OVERRIDE: ${{ inputs.orgs || vars.ZED_FLEET_ORGS || '' }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
           show-progress: false
@@ -159,7 +159,7 @@ jobs:
       GITHUB_TOKEN: ${{ secrets.ZED_FLEET_GH_TOKEN }}
       ZED_PKG_TOKEN: ${{ secrets.ZED_PKG_TOKEN }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: zed-pkg/zed-clients
           ref: main
@@ -167,7 +167,7 @@ jobs:
           token: ${{ secrets.ZED_FLEET_GH_TOKEN }}
           persist-credentials: false
           show-progress: false
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: zed-pkg/zed-cli
           ref: main
@@ -175,7 +175,7 @@ jobs:
           token: ${{ secrets.ZED_FLEET_GH_TOKEN }}
           persist-credentials: false
           show-progress: false
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: zed-pkg/zed-api-server.rs
           ref: main
@@ -383,7 +383,7 @@ jobs:
       APPLY: ${{ github.event_name != 'workflow_dispatch' || inputs.apply == 'true' }}
       CLIENTS_JSON: ${{ toJSON(matrix.clients) }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
           show-progress: false
