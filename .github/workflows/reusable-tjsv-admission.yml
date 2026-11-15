@@ -57,6 +57,12 @@ jobs:
         env:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      # Pin the npm audit runtime. The runner's ambient Node/npm can have a
+      # different advisory classification; validation must be reproducible.
+      - name: Install audited Node and npm
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.23.4
       - name: Run canonical peer-authority parity and fresh Contract IR
         uses: ORESoftware/typespec-json-schema-validator@69337efc11ba4ecaa90b48878c942384fc74f650
         with:
