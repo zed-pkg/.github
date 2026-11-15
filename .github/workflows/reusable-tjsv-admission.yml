@@ -64,7 +64,7 @@ jobs:
         with:
           node-version: 22.23.4
       - name: Run canonical peer-authority parity and fresh Contract IR
-        uses: ORESoftware/typespec-json-schema-validator@69337efc11ba4ecaa90b48878c942384fc74f650
+        uses: ORESoftware/typespec-json-schema-validator@f386c78e44c93309029e186799d926c652cb0d96
         with:
           typespec: ${{ inputs.typespec }}
           schema: ${{ inputs.schema }}
