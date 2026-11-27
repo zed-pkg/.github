@@ -15,6 +15,11 @@
 : "${ORES_LINT_SKIP_GLEAM:=0}"
 : "${ORES_LINT_SKIP_REQUIRE_SEND:=0}"
 : "${ORES_LINT_REQUIRE_SEND_INCLUDE_TESTS:=0}"
+: "${ORES_LINT_SKIP_CONCURRENCY_RUST:=0}"
+# The concurrency scanner is advisory when called through lint.sh. Repositories
+# that have explicitly adopted BOUNDED_CONCURRENCY.md may invoke
+# concurrency-rust.sh directly with this set to 1.
+: "${ORES_LINT_CONCURRENCY_STRICT:=0}"
 
 # How deep to search for nested sub-projects (crates and packages). Repos here
 # routinely hold crates under apps/ and clients/ that a root-only lint misses.
@@ -36,7 +41,8 @@
 
 export ORES_LINT_MAX_EXAMPLES ORES_LINT_STRICT ORES_LINT_SKIP_RUST ORES_LINT_SKIP_JS
 export ORES_LINT_SKIP_DART ORES_LINT_SKIP_GLEAM ORES_LINT_SKIP_REQUIRE_SEND
-export ORES_LINT_REQUIRE_SEND_INCLUDE_TESTS
+export ORES_LINT_REQUIRE_SEND_INCLUDE_TESTS ORES_LINT_SKIP_CONCURRENCY_RUST
+export ORES_LINT_CONCURRENCY_STRICT
 export ORES_LINT_DEPTH ORES_LINT_RUST_ALL_TARGETS ORES_LINT_ESLINT_MIN_MAJOR
 export ORES_LINT_IMPLICIT_RETURN_MSG
 
